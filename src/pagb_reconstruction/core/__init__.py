@@ -17,6 +17,7 @@ from pagb_reconstruction.core.reconstruction import (
     ReconstructionResult,
 )
 from pagb_reconstruction.core.variant import VariantAnalyzer
+from pagb_reconstruction.core.grain_metrics import GrainMetrics, GrainSizeResult
 from pagb_reconstruction.core.graph import (
     build_adjacency_graph,
     markov_cluster,
@@ -41,6 +42,8 @@ __all__ = [
     "ReconstructionEngine",
     "ReconstructionResult",
     "VariantAnalyzer",
+    "GrainMetrics",
+    "GrainSizeResult",
     "build_adjacency_graph",
     "markov_cluster",
     "vote_fill",

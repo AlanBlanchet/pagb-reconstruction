@@ -163,6 +163,10 @@ class MainWindow(QMainWindow):
         self._reconstruction_panel.reconstruction_finished.connect(
             self._on_reconstruction_done
         )
+        self._or_panel.or_changed.connect(self._on_or_changed)
+
+    def _on_or_changed(self, or_name: str):
+        self._status_bar.showMessage(f"OR changed to: {or_name}")
 
     def _open_file(self):
         path, _ = QFileDialog.getOpenFileName(

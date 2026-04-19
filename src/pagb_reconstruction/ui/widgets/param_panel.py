@@ -1,7 +1,6 @@
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from pagb_reconstruction.core.reconstruction import ReconstructionConfig
-from pagb_reconstruction.ui.model_widget import ModelFormWidget
 
 
 class ParamPanel(QWidget):

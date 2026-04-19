@@ -1,3 +1,4 @@
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -12,6 +13,8 @@ from pagb_reconstruction.core.orientation_relationship import OrientationRelatio
 
 
 class ORPanel(QWidget):
+    or_changed = Signal(str)
+
     def __init__(self):
         super().__init__()
         self._setup_ui()
@@ -24,7 +27,7 @@ class ORPanel(QWidget):
 
         self._or_combo = QComboBox()
         self._or_combo.addItems(OrientationRelationship.preset_names())
-        self._or_combo.currentTextChanged.connect(self._update_detail)
+        self._or_combo.currentTextChanged.connect(self._on_or_changed)
         preset_layout.addRow("Preset:", self._or_combo)
 
         self._optimize_cb = QCheckBox("Optimize OR to data")
@@ -39,6 +42,10 @@ class ORPanel(QWidget):
         layout.addStretch()
 
         self._update_detail()
+
+    def _on_or_changed(self, name: str):
+        self._update_detail()
+        self.or_changed.emit(name)
 
     def _update_detail(self):
         name = self._or_combo.currentText()

@@ -9,6 +9,7 @@ from pagb_reconstruction.core.reconstruction import ReconstructionResult
 
 class MapViewer(QWidget):
     pixel_hovered = Signal(int, int)
+    pixel_clicked = Signal(int, int)
 
     def __init__(self):
         super().__init__()
@@ -40,6 +41,8 @@ class MapViewer(QWidget):
         self._plot.hideAxis("left")
         self._plot.hideAxis("bottom")
 
+        self._image_item.mouseClickEvent = self._on_image_click
+
         self._boundary_item = pg.ImageItem()
         self._boundary_item.setZValue(10)
         self._boundary_item.setOpacity(0.5)
@@ -47,6 +50,14 @@ class MapViewer(QWidget):
         self._boundary_item.setVisible(False)
 
         layout.addWidget(self._graphics_view)
+
+        self._grain_overlay = QLabel("")
+        self._grain_overlay.setWordWrap(True)
+        self._grain_overlay.setStyleSheet(
+            "background: rgba(0,0,0,180); color: #eee; padding: 6px; font-size: 12px;"
+        )
+        self._grain_overlay.setVisible(False)
+        layout.addWidget(self._grain_overlay)
 
         self._placeholder = QLabel("Open an EBSD file to display the map")
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -102,3 +113,45 @@ class MapViewer(QWidget):
             return self._ebsd_map.compute_map_property(mode)
         except KeyError:
             return np.zeros(self._ebsd_map.shape)
+
+    def _on_image_click(self, event):
+        if self._ebsd_map is None:
+            return
+        pos = event.pos()
+        x, y = int(pos.x()), int(pos.y())
+        rows, cols = self._ebsd_map.shape
+        if not (0 <= y < rows and 0 <= x < cols):
+            self._grain_overlay.setVisible(False)
+            return
+
+        flat_idx = y * cols + x
+        euler = self._ebsd_map.crystal_map.rotations.to_euler(degrees=True)
+        phi1, Phi, phi2 = euler[flat_idx]
+        phase_id = int(self._ebsd_map.phase_ids[flat_idx])
+        phase_name = self._ebsd_map.phases[phase_id].name if phase_id < len(self._ebsd_map.phases) else "?"
+
+        grain_id = -1
+        if self._ebsd_map.grains:
+            for g in self._ebsd_map.grains:
+                if flat_idx in g.pixel_indices:
+                    grain_id = g.id
+                    break
+
+        lines = [
+            f"Pixel: ({x}, {y})",
+            f"Phase: {phase_name} (id={phase_id})",
+            f"Euler: ({phi1:.1f}, {Phi:.1f}, {phi2:.1f})",
+            f"Grain ID: {grain_id}",
+        ]
+
+        if self._result is not None:
+            parent_id = int(self._result.parent_grain_ids[flat_idx])
+            variant_id = int(self._result.variant_ids[flat_idx])
+            fit = float(self._result.fit_angles[flat_idx])
+            lines.append(f"Parent ID: {parent_id}")
+            lines.append(f"Variant: V{variant_id}")
+            lines.append(f"Fit: {fit:.2f}\u00b0")
+
+        self._grain_overlay.setText("\n".join(lines))
+        self._grain_overlay.setVisible(True)
+        self.pixel_clicked.emit(x, y)

@@ -2,7 +2,8 @@ import numpy as np
 from scipy import sparse
 
 from pagb_reconstruction.core.grain import Grain
-from pagb_reconstruction.utils.math_ops import cumulative_gaussian
+from pagb_reconstruction.core.orientation_relationship import OrientationRelationship
+from pagb_reconstruction.utils.math_ops import cumulative_gaussian, misorientation_angle_pair
 
 
 def build_adjacency_graph(
@@ -12,8 +13,6 @@ def build_adjacency_graph(
     threshold_deg: float = 2.5,
     tolerance_deg: float = 2.5,
 ) -> sparse.csr_matrix:
-    from pagb_reconstruction.utils.math_ops import misorientation_angle_pair
-
     n = len(grains)
     rows, cols, weights = [], [], []
     id_map = _grain_id_to_index(grains)
@@ -141,3 +140,97 @@ def vote_fill(
             break
 
     return labels
+
+
+def build_variant_graph(
+    grains: list[Grain],
+    or_obj: OrientationRelationship,
+    parent_sym_quats: np.ndarray,
+    threshold_deg: float = 2.5,
+    tolerance_deg: float = 2.5,
+) -> tuple[sparse.csr_matrix, np.ndarray]:
+    n_grains = len(grains)
+    variants_per_grain = or_obj.variant_quaternions()
+    n_variants = len(variants_per_grain)
+    dim = n_grains * n_variants
+
+    all_candidates = np.zeros((n_grains, n_variants, 4))
+    for i, grain in enumerate(grains):
+        all_candidates[i] = or_obj.candidate_parents(grain.mean_quaternion)
+
+    id_map = _grain_id_to_index(grains)
+    M = sparse.lil_matrix((dim, dim))
+
+    for i, grain_i in enumerate(grains):
+        for nid in grain_i.neighbor_ids:
+            j = id_map.get(nid)
+            if j is None or j <= i:
+                continue
+            for va in range(n_variants):
+                for vb in range(n_variants):
+                    angle = misorientation_angle_pair(
+                        all_candidates[i, va], all_candidates[j, vb], parent_sym_quats
+                    )
+                    weight = float(cumulative_gaussian(angle, threshold_deg, tolerance_deg))
+                    if weight > 0.01:
+                        ri = i * n_variants + va
+                        ci = j * n_variants + vb
+                        M[ri, ci] = weight
+                        M[ci, ri] = weight
+
+    return M.tocsr(), all_candidates
+
+
+def variant_graph_cluster(
+    adj: sparse.csr_matrix,
+    all_candidates: np.ndarray,
+    n_grains: int,
+    n_variants: int,
+    inflation: float = 1.1,
+    max_iter: int = 15,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    M = adj.toarray().astype(np.float64)
+    np.fill_diagonal(M, 1.0)
+    dim = M.shape[0]
+
+    col_sums = M.sum(axis=0)
+    col_sums[col_sums == 0] = 1.0
+    M /= col_sums[np.newaxis, :]
+
+    for _ in range(max_iter):
+        M_old = M.copy()
+        M = M @ M
+        M = np.power(M, inflation)
+        M[M < 1e-5] = 0.0
+        col_sums = M.sum(axis=0)
+        col_sums[col_sums == 0] = 1.0
+        M /= col_sums[np.newaxis, :]
+        if np.abs(M - M_old).max() < 1e-6:
+            break
+
+    best_variants = np.zeros(n_grains, dtype=np.int32)
+    parent_oris = np.zeros((n_grains, 4))
+
+    for i in range(n_grains):
+        scores = np.zeros(n_variants)
+        for v in range(n_variants):
+            row = i * n_variants + v
+            scores[v] = M[row, :].sum()
+        best_variants[i] = int(np.argmax(scores))
+        parent_oris[i] = all_candidates[i, best_variants[i]]
+
+    cluster_labels = np.zeros(n_grains, dtype=np.int32)
+    attractors = np.where(np.diag(M) > 0.01)[0]
+    if len(attractors) > 0:
+        for i in range(dim):
+            grain_idx = i // n_variants
+            best = attractors[np.argmax(M[attractors, i])]
+            cluster_labels[grain_idx] = best // n_variants
+    else:
+        cluster_labels = np.arange(n_grains, dtype=np.int32)
+
+    unique = np.unique(cluster_labels)
+    remap = {old: new for new, old in enumerate(unique)}
+    cluster_labels = np.array([remap[l] for l in cluster_labels], dtype=np.int32)
+
+    return parent_oris, best_variants, cluster_labels

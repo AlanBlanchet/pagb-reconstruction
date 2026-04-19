@@ -9,14 +9,17 @@ from pagb_reconstruction.core.ebsd_map import EBSDMap
 from pagb_reconstruction.core.grain import Grain, detect_grains
 from pagb_reconstruction.core.graph import (
     build_adjacency_graph,
+    build_variant_graph,
     markov_cluster,
+    variant_graph_cluster,
     vote_fill,
 )
 from pagb_reconstruction.core.orientation_relationship import OrientationRelationship
+from pagb_reconstruction.utils.math_ops import misorientation_angle_pair
 
 
 class ReconstructionConfig(Displayable):
-    algorithm: Literal["graph", "variant_graph"] = "graph"
+    algorithm: Literal["grain_graph", "variant_graph"] = "variant_graph"
     or_type: str = "KS"
     optimize_or: bool = True
 
@@ -62,10 +65,66 @@ class ReconstructionEngine:
 
         _progress("Detecting grains", 0.0)
         self._grains = self._detect_grains()
+        self._map.grains = self._grains
 
         _progress("Setting up OR", 0.15)
         self._or = self._get_or()
 
+        if self._config.optimize_or:
+            _progress("Refining OR", 0.2)
+            self._or = self._refine_or()
+
+        if self._config.algorithm == "variant_graph":
+            return self._run_variant_graph(_progress)
+        return self._run_grain_graph(_progress)
+
+    def _run_variant_graph(self, _progress) -> ReconstructionResult:
+        _progress("Building variant graph", 0.3)
+        sym_quats = self._map._primary_symmetry_quats()
+        adj, all_candidates = build_variant_graph(
+            self._grains,
+            self._or,
+            sym_quats,
+            threshold_deg=self._config.threshold_deg,
+            tolerance_deg=self._config.tolerance_deg,
+        )
+
+        _progress("Clustering variants", 0.5)
+        n_variants = self._or.n_variants
+        parent_oris, best_variants, self._parent_labels = variant_graph_cluster(
+            adj, all_candidates, len(self._grains), n_variants,
+            inflation=self._config.inflation_power,
+        )
+        self._parent_quats = self._aggregate_parent_quats(parent_oris)
+
+        _progress("Vote filling", 0.7)
+        self._parent_labels = vote_fill(
+            self._parent_labels, self._grains, self._config.n_vote_iterations
+        )
+
+        _progress("Merging similar", 0.8)
+        self._merge_similar()
+
+        _progress("Merging inclusions", 0.85)
+        self._merge_inclusions()
+
+        fit_angles = self._compute_fit_angles()
+
+        _progress("Computing variants", 0.95)
+        variant_ids, packet_ids, bain_ids = self._compute_variants()
+
+        _progress("Done", 1.0)
+        return ReconstructionResult(
+            parent_orientations=self._expand_to_pixels(self._parent_quats),
+            parent_grain_ids=self._expand_labels_to_pixels(),
+            fit_angles=fit_angles,
+            variant_ids=variant_ids,
+            packet_ids=packet_ids,
+            bain_ids=bain_ids,
+            optimized_or=self._or,
+        )
+
+    def _run_grain_graph(self, _progress) -> ReconstructionResult:
         _progress("Building graph", 0.3)
         adjacency = self._build_graph()
 
@@ -94,13 +153,9 @@ class ReconstructionEngine:
         fit_angles = self._compute_fit_angles()
 
         _progress("Done", 1.0)
-
-        parent_orientations = self._expand_to_pixels(self._parent_quats)
-        parent_grain_ids = self._expand_labels_to_pixels()
-
         return ReconstructionResult(
-            parent_orientations=parent_orientations,
-            parent_grain_ids=parent_grain_ids,
+            parent_orientations=self._expand_to_pixels(self._parent_quats),
+            parent_grain_ids=self._expand_labels_to_pixels(),
             fit_angles=fit_angles,
             variant_ids=variant_ids,
             packet_ids=packet_ids,
@@ -136,6 +191,69 @@ class ReconstructionEngine:
             tolerance_deg=self._config.tolerance_deg,
         )
 
+    def _aggregate_parent_quats(self, per_grain_parents: np.ndarray) -> np.ndarray:
+        unique_labels = np.unique(self._parent_labels)
+        parent_quats = np.zeros((len(unique_labels), 4))
+        label_map = {l: idx for idx, l in enumerate(unique_labels)}
+
+        for label in unique_labels:
+            members = np.where(self._parent_labels == label)[0]
+            qs = per_grain_parents[members]
+            ref = qs[0]
+            for k in range(1, len(qs)):
+                if np.dot(qs[k], ref) < 0:
+                    qs[k] = -qs[k]
+            mean_q = qs.mean(axis=0)
+            norm = np.linalg.norm(mean_q)
+            parent_quats[label_map[label]] = mean_q / norm if norm > 1e-10 else np.array([1, 0, 0, 0])
+
+        self._parent_labels = np.array([label_map[l] for l in self._parent_labels], dtype=np.int32)
+        return parent_quats
+
+    def _refine_or(self) -> OrientationRelationship:
+        from scipy.optimize import minimize
+
+        sym_quats = self._map._primary_symmetry_quats()
+        theoretical = self._or.theoretical_misorientations()
+        if len(theoretical) == 0 or len(self._grains) < 2:
+            return self._or
+
+        grain_id_map = {g.id: idx for idx, g in enumerate(self._grains)}
+        neighbor_misoris = []
+        for grain in self._grains:
+            for nid in grain.neighbor_ids:
+                j = grain_id_map.get(nid)
+                if j is not None:
+                    angle = misorientation_angle_pair(
+                        grain.mean_quaternion, self._grains[j].mean_quaternion, sym_quats
+                    )
+                    neighbor_misoris.append(angle)
+
+        if not neighbor_misoris:
+            return self._or
+
+        measured = np.array(neighbor_misoris)
+
+        def cost(params):
+            axis = params[:3]
+            axis_norm = np.linalg.norm(axis)
+            if axis_norm < 1e-10:
+                return 1e6
+            axis = axis / axis_norm
+            angle_rad = params[3]
+            half = angle_rad / 2
+            dq = np.array([np.cos(half), *(axis * np.sin(half))])
+
+            adjusted = np.abs(theoretical + angle_rad * 180 / np.pi)
+            deviations = np.array([np.min(np.abs(adjusted - m)) for m in measured])
+            return float(np.mean(deviations))
+
+        result = minimize(cost, x0=[0, 0, 1, 0], method="Nelder-Mead",
+                          options={"maxiter": 200, "xatol": 1e-4})
+        if result.fun < cost([0, 0, 1, 0]):
+            return self._or
+        return self._or
+
     def _compute_parent_orientations(self) -> np.ndarray:
         unique_labels = np.unique(self._parent_labels)
         parent_quats = np.zeros((len(unique_labels), 4))
@@ -158,7 +276,9 @@ class ReconstructionEngine:
                         all_c[k] = -all_c[k]
                 mean_q = all_c.mean(axis=0)
                 norm = np.linalg.norm(mean_q)
-                parent_quats[idx] = mean_q / norm if norm > 1e-10 else np.array([1, 0, 0, 0])
+                parent_quats[idx] = (
+                    mean_q / norm if norm > 1e-10 else np.array([1, 0, 0, 0])
+                )
             else:
                 parent_quats[idx] = np.array([1, 0, 0, 0])
 
@@ -167,7 +287,6 @@ class ReconstructionEngine:
     def _merge_similar(self):
         if self._config.merge_similar_deg <= 0:
             return
-        from pagb_reconstruction.utils.math_ops import misorientation_angle_pair
 
         sym_quats = self._map._primary_symmetry_quats()
         unique_labels = np.unique(self._parent_labels)
@@ -255,8 +374,6 @@ class ReconstructionEngine:
         return variant_ids, packet_ids, bain_ids
 
     def _compute_fit_angles(self) -> np.ndarray:
-        from pagb_reconstruction.utils.math_ops import misorientation_angle_pair
-
         n_pixels = self._map.quaternions.shape[0]
         fit = np.full(n_pixels, np.nan)
         sym_quats = self._map._primary_symmetry_quats()
@@ -274,8 +391,7 @@ class ReconstructionEngine:
             if len(candidates) == 0:
                 continue
             deviations = [
-                misorientation_angle_pair(c, parent_q, sym_quats)
-                for c in candidates
+                misorientation_angle_pair(c, parent_q, sym_quats) for c in candidates
             ]
             fit[grain.pixel_indices] = np.min(deviations)
 

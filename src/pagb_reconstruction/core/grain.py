@@ -12,11 +12,39 @@ class Grain(SpatialRegion):
     mean_quaternion: np.ndarray  # (4,) quaternion
     phase_id: int
     area: int
+    map_width: int = 1
     neighbor_ids: list[int] = []
 
     @property
     def size(self) -> int:
         return len(self.pixel_indices)
+
+    @property
+    def equivalent_diameter(self) -> float:
+        return 2 * np.sqrt(self.area / np.pi)
+
+    @property
+    def aspect_ratio(self) -> float:
+        if self.area < 3:
+            return 1.0
+        r = self.pixel_indices // self.map_width
+        c = self.pixel_indices % self.map_width
+        cov = np.cov(np.column_stack([c, r]).T)
+        eigvals = np.sort(np.linalg.eigvalsh(cov))[::-1]
+        return float(np.sqrt(eigvals[0] / max(eigvals[1], 1e-12)))
+
+    @property
+    def perimeter(self) -> int:
+        rows = self.pixel_indices // self.map_width
+        cols = self.pixel_indices % self.map_width
+        pixel_set = set(zip(rows, cols))
+        count = 0
+        for r, c in pixel_set:
+            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                if (r + dr, c + dc) not in pixel_set:
+                    count += 1
+                    break
+        return count
 
 
 def detect_grains(
@@ -90,6 +118,7 @@ def detect_grains(
                 mean_quaternion=mean_q,
                 phase_id=ph_id,
                 area=len(pixels),
+                map_width=cols,
             )
         )
 

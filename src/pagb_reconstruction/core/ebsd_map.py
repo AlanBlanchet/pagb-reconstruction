@@ -1,7 +1,9 @@
 from typing import Any
 
+import matplotlib
 import numpy as np
 from orix.crystal_map import CrystalMap
+from orix.plot import IPFColorKeyTSL
 from orix.quaternion import Orientation
 from orix.vector import Vector3d
 from pydantic import ConfigDict
@@ -9,6 +11,7 @@ from pydantic import ConfigDict
 from pagb_reconstruction.core.base import SpatialMap, map_property
 from pagb_reconstruction.core.grain import Grain, detect_grains
 from pagb_reconstruction.core.phase import PhaseConfig
+from pagb_reconstruction.utils.math_ops import misorientation_angle_neighbors, misorientation_angle_pair
 
 
 class EBSDMap(SpatialMap):
@@ -124,8 +127,6 @@ class EBSDMap(SpatialMap):
 
     @map_property("KAM")
     def kam_map(self) -> np.ndarray:
-        from pagb_reconstruction.utils.math_ops import misorientation_angle_neighbors
-
         sym_quats = self._primary_symmetry_quats()
         misori_h, misori_v = misorientation_angle_neighbors(
             self.quaternions, self.shape, sym_quats
@@ -169,6 +170,67 @@ class EBSDMap(SpatialMap):
             return np.full(self.shape, np.nan)
         return self._result.fit_angles.reshape(self.shape)
 
+    @map_property("Parent IPF", requires_result=True)
+    def parent_ipf_map(self) -> np.ndarray:
+        if self._result is None:
+            return np.zeros((*self.shape, 3))
+        parent_quats = self._result.parent_orientations
+        phases = self.crystal_map.phases_in_data
+        sym = phases[phases.ids[0]].point_group
+        ori = Orientation(parent_quats.reshape(-1, 4), symmetry=sym)
+        key = IPFColorKeyTSL(sym, direction=Vector3d.zvector())
+        rgb = key.orientation2color(ori).reshape(*self.shape, 3)
+        parent_ids = self._result.parent_grain_ids.reshape(self.shape)
+        boundary = self._boundary_from_ids(parent_ids)
+        rgb[boundary] = 0.1
+        return rgb
+
+    @map_property("Parent + Boundaries", requires_result=True)
+    def parent_boundary_map(self) -> np.ndarray:
+        if self._result is None:
+            return np.zeros((*self.shape, 3))
+        parent_ids = self._result.parent_grain_ids.reshape(self.shape)
+        unique_ids = np.unique(parent_ids)
+        cmap = matplotlib.colormaps["tab20"]
+        rgb = np.zeros((*self.shape, 3))
+        for i, gid in enumerate(unique_ids):
+            color = cmap(i % 20)[:3]
+            rgb[parent_ids == gid] = color
+        boundary = self._boundary_from_ids(parent_ids)
+        rgb[boundary] = 0.0
+        return rgb
+
+    @map_property("GOS")
+    def gos_map(self) -> np.ndarray:
+        gos = np.zeros(self.shape, dtype=np.float64)
+        if not self.grains:
+            return gos
+        rows, cols = self.shape
+        sym_quats = self._primary_symmetry_quats()
+        for g in self.grains:
+            angles = np.array([
+                misorientation_angle_pair(self.quaternions[px], g.mean_quaternion, sym_quats)
+                for px in g.pixel_indices
+            ])
+            val = angles.mean()
+            r = g.pixel_indices // cols
+            c = g.pixel_indices % cols
+            gos[r, c] = val
+        return gos
+
+    @map_property("Misorientation")
+    def misorientation_map(self) -> np.ndarray:
+        sym_quats = self._primary_symmetry_quats()
+        misori_h, misori_v = misorientation_angle_neighbors(
+            self.quaternions, self.shape, sym_quats
+        )
+        rows, cols = self.shape
+        h_full = np.zeros((rows, cols), dtype=np.float64)
+        v_full = np.zeros((rows, cols), dtype=np.float64)
+        h_full[:, :-1] = misori_h.reshape(rows, cols - 1)
+        v_full[:-1, :] = misori_v.reshape(rows - 1, cols)
+        return np.maximum(h_full, v_full)
+
     def run_grain_detection(self, threshold_deg: float = 5.0, min_size: int = 5):
         sym_quats = self._primary_symmetry_quats()
         self.grains = detect_grains(
@@ -180,9 +242,14 @@ class EBSDMap(SpatialMap):
             min_size=min_size,
         )
 
-    def grain_boundary_map(self) -> np.ndarray:
-        from pagb_reconstruction.utils.math_ops import misorientation_angle_neighbors
+    def _boundary_from_ids(self, id_map: np.ndarray) -> np.ndarray:
+        rows, cols = id_map.shape
+        boundary = np.zeros((rows, cols), dtype=bool)
+        boundary[:, :-1] |= id_map[:, :-1] != id_map[:, 1:]
+        boundary[:-1, :] |= id_map[:-1, :] != id_map[1:, :]
+        return boundary
 
+    def grain_boundary_map(self) -> np.ndarray:
         sym_quats = self._primary_symmetry_quats()
         misori_h, misori_v = misorientation_angle_neighbors(
             self.quaternions, self.shape, sym_quats
