@@ -1,19 +1,19 @@
 import numpy as np
-from pydantic import ConfigDict
+from pydantic import Field
 from scipy import ndimage
 
 from pagb_reconstruction.core.base import SpatialRegion
+from pagb_reconstruction.utils.math_ops import MisorientationOps
 
 
 class Grain(SpatialRegion):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     id: int
     mean_quaternion: np.ndarray  # (4,) quaternion
     phase_id: int
     area: int
     map_width: int = 1
-    neighbor_ids: list[int] = []
+    neighbor_ids: list[int] = Field(default_factory=list)
 
     @property
     def size(self) -> int:
@@ -24,19 +24,21 @@ class Grain(SpatialRegion):
         return 2 * np.sqrt(self.area / np.pi)
 
     @property
+    def row_col(self) -> tuple[np.ndarray, np.ndarray]:
+        return self.pixel_indices // self.map_width, self.pixel_indices % self.map_width
+
+    @property
     def aspect_ratio(self) -> float:
         if self.area < 3:
             return 1.0
-        r = self.pixel_indices // self.map_width
-        c = self.pixel_indices % self.map_width
+        r, c = self.row_col
         cov = np.cov(np.column_stack([c, r]).T)
         eigvals = np.sort(np.linalg.eigvalsh(cov))[::-1]
         return float(np.sqrt(eigvals[0] / max(eigvals[1], 1e-12)))
 
     @property
     def perimeter(self) -> int:
-        rows = self.pixel_indices // self.map_width
-        cols = self.pixel_indices % self.map_width
+        rows, cols = self.row_col
         pixel_set = set(zip(rows, cols))
         count = 0
         for r, c in pixel_set:
@@ -55,12 +57,10 @@ def detect_grains(
     threshold_deg: float = 5.0,
     min_size: int = 5,
 ) -> list[Grain]:
-    from pagb_reconstruction.utils.math_ops import misorientation_angle_neighbors
-
     rows, cols = shape
     n_pixels = rows * cols
 
-    misori_h, misori_v = misorientation_angle_neighbors(
+    misori_h, misori_v = MisorientationOps.neighbors(
         quaternions, shape, symmetry_quats
     )
 

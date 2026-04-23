@@ -6,20 +6,16 @@ from orix.crystal_map import CrystalMap
 from orix.plot import IPFColorKeyTSL
 from orix.quaternion import Orientation
 from orix.vector import Vector3d
-from pydantic import ConfigDict
 
 from pagb_reconstruction.core.base import SpatialMap, map_property
+from pagb_reconstruction.core.constants import BoundaryThresholds, CSLParams, SlipSystems
 from pagb_reconstruction.core.grain import Grain, detect_grains
 from pagb_reconstruction.core.phase import PhaseConfig
-from pagb_reconstruction.utils.math_ops import (
-    misorientation_angle_neighbors,
-    misorientation_angle_pair,
-    misorientation_axis_angle_pair,
-)
+from pagb_reconstruction.utils.array_ops import boundaries_from_2d
+from pagb_reconstruction.utils.math_ops import MisorientationOps
 
 
 class EBSDMap(SpatialMap):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     crystal_map: CrystalMap
     phases: list[PhaseConfig]
@@ -110,10 +106,8 @@ class EBSDMap(SpatialMap):
         gmap = np.zeros(self.shape, dtype=np.float32)
         if not self.grains:
             return gmap
-        cols = self.shape[1]
         for g in self.grains:
-            r = g.pixel_indices // cols
-            c = g.pixel_indices % cols
+            r, c = g.row_col
             gmap[r, c] = g.id
         return gmap
 
@@ -132,7 +126,7 @@ class EBSDMap(SpatialMap):
     @map_property("KAM", dtype="scalar", unit="\u00b0", colormap="inferno", category="deformation")
     def kam_map(self) -> np.ndarray:
         sym_quats = self._primary_symmetry_quats()
-        misori_h, misori_v = misorientation_angle_neighbors(
+        misori_h, misori_v = MisorientationOps.neighbors(
             self.quaternions, self.shape, sym_quats
         )
         rows, cols = self.shape
@@ -185,7 +179,7 @@ class EBSDMap(SpatialMap):
         key = IPFColorKeyTSL(sym, direction=Vector3d.zvector())
         rgb = key.orientation2color(ori).reshape(*self.shape, 3)
         parent_ids = self._result.parent_grain_ids.reshape(self.shape)
-        boundary = self._boundary_from_ids(parent_ids)
+        boundary = boundaries_from_2d(parent_ids)
         rgb[boundary] = 0.1
         return rgb
 
@@ -200,7 +194,7 @@ class EBSDMap(SpatialMap):
         for i, gid in enumerate(unique_ids):
             color = cmap(i % 20)[:3]
             rgb[parent_ids == gid] = color
-        boundary = self._boundary_from_ids(parent_ids)
+        boundary = boundaries_from_2d(parent_ids)
         rgb[boundary] = 0.0
         return rgb
 
@@ -209,23 +203,21 @@ class EBSDMap(SpatialMap):
         gos = np.zeros(self.shape, dtype=np.float64)
         if not self.grains:
             return gos
-        rows, cols = self.shape
         sym_quats = self._primary_symmetry_quats()
         for g in self.grains:
             angles = np.array([
-                misorientation_angle_pair(self.quaternions[px], g.mean_quaternion, sym_quats)
+                MisorientationOps.pair(self.quaternions[px], g.mean_quaternion, sym_quats)
                 for px in g.pixel_indices
             ])
             val = angles.mean()
-            r = g.pixel_indices // cols
-            c = g.pixel_indices % cols
+            r, c = g.row_col
             gos[r, c] = val
         return gos
 
     @map_property("Misorientation", dtype="scalar", unit="\u00b0", colormap="viridis", category="deformation")
     def misorientation_map(self) -> np.ndarray:
         sym_quats = self._primary_symmetry_quats()
-        misori_h, misori_v = misorientation_angle_neighbors(
+        misori_h, misori_v = MisorientationOps.neighbors(
             self.quaternions, self.shape, sym_quats
         )
         rows, cols = self.shape
@@ -247,24 +239,21 @@ class EBSDMap(SpatialMap):
         )
 
     def _boundary_from_ids(self, id_map: np.ndarray) -> np.ndarray:
-        rows, cols = id_map.shape
-        boundary = np.zeros((rows, cols), dtype=bool)
-        boundary[:, :-1] |= id_map[:, :-1] != id_map[:, 1:]
-        boundary[:-1, :] |= id_map[:-1, :] != id_map[1:, :]
-        return boundary
+        return boundaries_from_2d(id_map)
 
     def grain_boundary_map(self) -> np.ndarray:
+        _thresholds = BoundaryThresholds()
         sym_quats = self._primary_symmetry_quats()
-        misori_h, misori_v = misorientation_angle_neighbors(
+        misori_h, misori_v = MisorientationOps.neighbors(
             self.quaternions, self.shape, sym_quats
         )
 
         rows, cols = self.shape
         boundary = np.zeros((rows, cols), dtype=bool)
         if misori_h.size == rows * (cols - 1):
-            boundary[:, 1:] |= misori_h.reshape(rows, cols - 1) >= 5.0
+            boundary[:, 1:] |= misori_h.reshape(rows, cols - 1) >= _thresholds.grain_angle_deg
         if misori_v.size == (rows - 1) * cols:
-            boundary[1:, :] |= misori_v.reshape(rows - 1, cols) >= 5.0
+            boundary[1:, :] |= misori_v.reshape(rows - 1, cols) >= _thresholds.grain_angle_deg
         return boundary
 
     @map_property("GROD", dtype="scalar", unit="\u00b0", colormap="hot", category="deformation")
@@ -276,7 +265,7 @@ class EBSDMap(SpatialMap):
         sym_quats = self._primary_symmetry_quats()
         for g in self.grains:
             for px in g.pixel_indices:
-                angle = misorientation_angle_pair(
+                angle = MisorientationOps.pair(
                     self.quaternions[px], g.mean_quaternion, sym_quats
                 )
                 r, c = px // cols, px % cols
@@ -289,11 +278,7 @@ class EBSDMap(SpatialMap):
         n_pixels = rows * cols
         schmid = np.zeros(n_pixels, dtype=np.float64)
         phases = self.crystal_map.phases_in_data
-
-        bcc_planes = np.array([[1,1,0],[1,0,1],[0,1,1],[1,-1,0],[1,0,-1],[0,1,-1]], dtype=np.float64)
-        bcc_dirs = np.array([[1,-1,1],[1,1,-1],[-1,1,1],[1,1,1],[1,-1,1],[1,1,-1]], dtype=np.float64)
-        fcc_planes = np.array([[1,1,1],[1,1,1],[1,1,1],[1,-1,1],[1,-1,1],[1,-1,1]], dtype=np.float64)
-        fcc_dirs = np.array([[1,-1,0],[0,1,-1],[-1,0,1],[1,1,0],[0,1,1],[-1,0,1]], dtype=np.float64)
+        _slip = SlipSystems()
 
         for pid in phases.ids:
             mask = self.crystal_map.phase_id == pid
@@ -302,9 +287,9 @@ class EBSDMap(SpatialMap):
                 family = phases[pid].point_group
                 sym_size = family.size
                 if sym_size <= 24:
-                    planes, dirs = bcc_planes, bcc_dirs
+                    planes, dirs = _slip.bcc_planes, _slip.bcc_dirs
                 else:
-                    planes, dirs = fcc_planes, fcc_dirs
+                    planes, dirs = _slip.fcc_planes, _slip.fcc_dirs
             else:
                 continue
 
@@ -337,13 +322,12 @@ class EBSDMap(SpatialMap):
         rows, cols = self.shape
         sym_quats = self._primary_symmetry_quats()
         rgb = np.ones((rows, cols, 3), dtype=np.float64)
+        _csl = CSLParams()
 
-        sigma3_angle, sigma3_tol = 60.0, 8.66
-        sigma3_axis = np.array([1, 1, 1], dtype=np.float64)
+        sigma3_axis = np.array(_csl.sigma3_axis, dtype=np.float64)
         sigma3_axis /= np.linalg.norm(sigma3_axis)
 
-        sigma9_angle, sigma9_tol = 38.94, 5.0
-        sigma9_axis = np.array([1, 1, 0], dtype=np.float64)
+        sigma9_axis = np.array(_csl.sigma9_axis, dtype=np.float64)
         sigma9_axis /= np.linalg.norm(sigma9_axis)
 
         quats = self.quaternions
@@ -352,9 +336,10 @@ class EBSDMap(SpatialMap):
             for c in range(cols - 1):
                 idx1 = r * cols + c
                 idx2 = r * cols + c + 1
-                angle, axis = misorientation_axis_angle_pair(quats[idx1], quats[idx2], sym_quats)
-                color = self._classify_csl(angle, axis, sigma3_angle, sigma3_axis, sigma3_tol,
-                                           sigma9_angle, sigma9_axis, sigma9_tol)
+                angle, axis = MisorientationOps.axis_angle_pair(quats[idx1], quats[idx2], sym_quats)
+                color = self._classify_csl(angle, axis, _csl.sigma3_angle, sigma3_axis, _csl.sigma3_tolerance,
+                                           _csl.sigma9_angle, sigma9_axis, _csl.sigma9_tolerance,
+                                           _csl.axis_dot_threshold, _csl.low_angle_threshold, _csl.high_angle_threshold)
                 if color is not None:
                     rgb[r, c] = color
                     rgb[r, c + 1] = color
@@ -363,9 +348,10 @@ class EBSDMap(SpatialMap):
             for c in range(cols):
                 idx1 = r * cols + c
                 idx2 = (r + 1) * cols + c
-                angle, axis = misorientation_axis_angle_pair(quats[idx1], quats[idx2], sym_quats)
-                color = self._classify_csl(angle, axis, sigma3_angle, sigma3_axis, sigma3_tol,
-                                           sigma9_angle, sigma9_axis, sigma9_tol)
+                angle, axis = MisorientationOps.axis_angle_pair(quats[idx1], quats[idx2], sym_quats)
+                color = self._classify_csl(angle, axis, _csl.sigma3_angle, sigma3_axis, _csl.sigma3_tolerance,
+                                           _csl.sigma9_angle, sigma9_axis, _csl.sigma9_tolerance,
+                                           _csl.axis_dot_threshold, _csl.low_angle_threshold, _csl.high_angle_threshold)
                 if color is not None:
                     rgb[r, c] = color
                     rgb[r + 1, c] = color
@@ -382,19 +368,22 @@ class EBSDMap(SpatialMap):
         s9_angle: float,
         s9_axis: np.ndarray,
         s9_tol: float,
+        dot_threshold: float = 0.9,
+        low_angle: float = 2.0,
+        high_angle: float = 15.0,
     ) -> np.ndarray | None:
-        if angle < 2.0:
+        if angle < low_angle:
             return np.array([0.7, 0.7, 0.7])
-        if angle < 15.0:
+        if angle < high_angle:
             return np.array([0.5, 0.5, 0.5])
         axis_norm = np.linalg.norm(axis)
         if axis_norm < 1e-10:
             return np.array([0.0, 0.0, 0.0])
         axis_unit = axis / axis_norm
-        if abs(angle - s3_angle) < s3_tol and abs(np.dot(axis_unit, s3_axis)) > 0.9:
+        if abs(angle - s3_angle) < s3_tol and abs(np.dot(axis_unit, s3_axis)) > dot_threshold:
             return np.array([1.0, 0.0, 0.0])
-        if abs(angle - s9_angle) < s9_tol and abs(np.dot(axis_unit, s9_axis)) > 0.9:
+        if abs(angle - s9_angle) < s9_tol and abs(np.dot(axis_unit, s9_axis)) > dot_threshold:
             return np.array([0.0, 0.0, 1.0])
-        if angle >= 15.0:
+        if angle >= high_angle:
             return np.array([0.0, 0.0, 0.0])
         return None

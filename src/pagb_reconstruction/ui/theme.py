@@ -9,6 +9,9 @@ DARK_FG = "#cdd6f4"
 GRID_COLOR = "#45475a"
 ACCENT = "#89b4fa"
 EDGE_COLOR = "#313244"
+SURFACE_DIM = "#181825"
+TEXT_MUTED = "#a6adc8"
+TEXT_DISABLED = "#585b70"
 
 
 def create_dark_figure(figsize: tuple[float, float] = (6, 4)) -> tuple[Figure, FigureCanvasQTAgg]:
@@ -141,14 +144,14 @@ def apply_theme(app: QApplication):
         "dark",
         corner_shape="sharp",
         custom_colors={
-            "primary": "#89b4fa",
-            "background": "#1e1e2e",
-            "foreground": "#cdd6f4",
+            "primary": ACCENT,
+            "background": DARK_BG,
+            "foreground": DARK_FG,
         },
         additional_qss=CUSTOM_STYLESHEET,
     )
     pg.setConfigOptions(
-        background="#1e1e2e",
-        foreground="#cdd6f4",
+        background=DARK_BG,
+        foreground=DARK_FG,
         antialias=True,
     )

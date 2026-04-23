@@ -2,11 +2,13 @@
 
 ## Project Setup
 
-- uv + hatchling, src layout at `src/pagb_reconstruction/`
+- uv + hatchling + hatch-vcs, src layout at `src/pagb_reconstruction/`
+- Dynamic versioning via hatch-vcs (git tags), fallback "0.0.0"
 - Entry point: `uv run pagb` → `pagb_reconstruction.app:main`
-- Dependencies: orix, numpy, scipy, h5py, matplotlib, PySide6, qdarktheme, pyqtgraph, numba, networkx, scikit-learn, superqt, pydantic
-- Dev deps: pytest>=8.0 in [dependency-groups] dev
+- Dependencies: orix, numpy, scipy, h5py, matplotlib, PySide6, qdarktheme, pyqtgraph, numba, networkx, scikit-learn, superqt, pydantic, packaging
+- Dev deps: pytest>=8.0, pyinstaller>=6.0 in [dependency-groups] dev
 - Tests: `uv run pytest tests/ -v` — 21 tests, all pass
+- Task runner: `just install`, `just test`, `just run`, `just build`
 
 ## Key Decisions
 
@@ -128,9 +130,75 @@
 - param_panel.py: Presets dropdown (Default/Fine/Coarse), tooltips from Field descriptions
 
 ### Tests
+
 anel.py: Volume fraction percentages, QPixmap color swatches, crystal family name
+
 - param_panel.py: Presets dropdown (Default/Fine/Coarse), tooltips from Field descriptions
 
 ### Tests
 
 - All 21 tests pass after changes
+
+## Major Restructuring Pass (2026-04-23)
+
+### Part A: Numba kernel classes (math_ops.py)
+
+- Added QuaternionOps, MisorientationOps, MathOps wrapper classes
+- @njit functions remain module-level (Numba requirement), classes expose via staticmethod()
+- Convenience methods: MisorientationOps.pair(), .neighbors(), .axis_angle_pair()
+- All callers updated: graph.py, reconstruction.py, ebsd_map.py, grain.py, utils/**init**.py
+- grain.py: moved misorientation import from function-level to module-level
+
+### Part B: Constants extraction (core/constants.py)
+
+- BoundaryThresholds: grain_angle_deg=5.0
+- CSLParams: sigma3/sigma9 angles, tolerances, axes, dot_threshold
+- SlipSystems: BCC/FCC planes and directions as numpy arrays
+- ClusteringDefaults: inflation, expansion, convergence, min_edge_weight, variant params
+- Used in: ebsd_map.py (boundary, CSL, Schmid), graph.py (clustering params)
+
+### Part C: Async map computation
+
+- ComputeWorker(QThread) in ui/widgets/compute_worker.py
+- MapViewer.\_update_display() now async: shows overlay, runs in worker, handles cancel via generation counter
+- \_on_compute_done / \_on_compute_error callbacks with stale-result filtering
+- base.py compute_map_property: added try/except + logging on error
+
+### Part D: Deduplication (utils/array_ops.py)
+
+- remap_labels(): used in graph.py (2 places), reconstruction.py
+- boundaries_from_2d(): used in ebsd_map.py (\_boundary_from_ids, parent maps)
+- align_hemisphere(): used in reconstruction.py (\_aggregate_parent_quats, \_compute_parent_orientations)
+- grain_index_map(): used in graph.py, reconstruction.py
+
+### Part E: Bug fixes
+
+- io/base.py: \_family_from_point_group now uses \_POINT_GROUP_FAMILIES dict (was always CUBIC)
+- reconstruction.py \_compute_variants: packet_ids = variant // max(n_variants//4, 1), bain_ids = variant % min(n_variants, 3)
+- variant.py bain_group_ids: uses min(n_variants, 3) instead of hardcoded 3
+
+### Part F: Build/Release infrastructure
+
+- pyproject.toml: dynamic version via hatch-vcs, added packaging + pyinstaller deps
+- **init**.py: **version** from importlib.metadata
+- Justfile: install, run, test, build, clean tasks
+- pagb.spec: PyInstaller spec
+- .github/workflows/ci.yml: test on push/PR, Python 3.10-3.12 matrix
+- .github/workflows/release.yml: build + release on tag push
+- packaging/: build-appimage.sh, .desktop file
+
+### Part G: Auto-update checker
+
+- core/updater.py: UpdateChecker(QThread), checks GitHub API, compares versions via packaging.Version
+- ui/widgets/update_bar.py: dismissable banner with download button
+- main_window.py: QTimer.singleShot(3000, \_check_updates), UpdateBar in central widget layout
+
+### Part H: README.md — features, install, dev, build, release, architecture
+
+### Part I: .gitignore — added \_version.py, _.AppImage, _.spec.bak
+
+### Lessons
+
+- Numba @njit cannot decorate class methods directly — must stay module-level, wrap via staticmethod()
+- Generation counter pattern handles stale async results cleanly (no thread cancellation needed)
+- grain.py had function-level import of math_ops — no circular dep, moved to module level

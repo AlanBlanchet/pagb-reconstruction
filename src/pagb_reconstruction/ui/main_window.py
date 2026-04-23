@@ -3,7 +3,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -16,10 +16,12 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QStatusBar,
     QToolBar,
+    QVBoxLayout,
     QWidget,
 )
 
 from pagb_reconstruction.core.ebsd_map import EBSDMap
+from pagb_reconstruction.core.updater import UpdateChecker
 from pagb_reconstruction.io.base import load_ebsd
 from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
 from pagb_reconstruction.ui.widgets.or_panel import ORPanel
@@ -28,6 +30,7 @@ from pagb_reconstruction.ui.widgets.phase_panel import PhasePanel
 from pagb_reconstruction.ui.widgets.pole_figure import PoleFigureWidget
 from pagb_reconstruction.ui.widgets.reconstruction_panel import ReconstructionPanel
 from pagb_reconstruction.ui.widgets.stats_panel import StatsPanel
+from pagb_reconstruction.ui.widgets.update_bar import UpdateBar
 
 
 class MainWindow(QMainWindow):
@@ -42,8 +45,17 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("PAGB Reconstruction")
         self.setMinimumSize(1200, 800)
 
+        central = QWidget()
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+
+        self._update_bar = UpdateBar()
+        central_layout.addWidget(self._update_bar)
+
         self._map_viewer = MapViewer()
-        self.setCentralWidget(self._map_viewer)
+        central_layout.addWidget(self._map_viewer, 1)
+        self.setCentralWidget(central)
 
         self._param_panel = ParamPanel()
         self._phase_panel = PhasePanel()
@@ -327,6 +339,20 @@ class MainWindow(QMainWindow):
         self._map_viewer.pixel_hovered.connect(self._on_pixel_hover)
         self._map_viewer.pixel_clicked.connect(self._on_pixel_click)
 
+        from PySide6.QtCore import QTimer, QUrl
+
+        QTimer.singleShot(3000, self._check_updates)
+        self._update_bar.open_url.connect(
+            lambda url: QDesktopServices.openUrl(QUrl(url))
+        )
+
+    def _check_updates(self):
+        self._update_checker = UpdateChecker()
+        self._update_checker.update_available.connect(
+            lambda info: self._update_bar.show_update(info.version, info.url)
+        )
+        self._update_checker.start()
+
     def _log(self, msg: str):
         ts = datetime.now().strftime("%H:%M:%S")
         self._log_text.appendPlainText(f"[{ts}] {msg}")
@@ -506,7 +532,6 @@ class MainWindow(QMainWindow):
         if not path:
             return
         try:
-            parent_euler = np.zeros((len(self._result.parent_grain_ids), 3))
             from orix.quaternion import Rotation
 
             rot = Rotation(self._result.parent_orientations.reshape(-1, 4))

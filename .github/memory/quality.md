@@ -68,6 +68,33 @@
 9. Stop button (`_stop_btn`) still not connected to cancellation logic in reconstruction_panel.py.
 10. `_refine_or` previously reported as no-op has been rewritten with proper OR optimization via Nelder-Mead, but cost function creates Orientation objects in tight loop — could be slow for large datasets.
 
+## 2026-04-23 — Post-refactoring quality review (second pass)
+
+### Fixed (Critical)
+
+1. **Mutable default `neighbor_ids: list[int] = []`** in Grain Pydantic model — classic shared-mutable-default risk. Changed to `Field(default_factory=list)`.
+2. **`_merge_similar` lacked transitive closure** — if labels A→B and B→C merged, C was not merged with A. Implemented union-find with path compression.
+
+### Fixed (Major)
+
+3. **Dead function `_grain_id_to_index`** in graph.py — wrapper around `grain_index_map` from array_ops, never called. Removed.
+4. **Dead standalone functions** in math_ops.py — `misorientation_angle_pair`, `misorientation_angle_neighbors`, `misorientation_axis_angle_pair` superseded by `MisorientationOps` class. Removed.
+5. **Dead assignment** in main_window.py `_save_file` — `parent_euler = np.zeros(...)` immediately overwritten.
+6. **Signal connection leak** in update_bar.py `show_update` — `_download_btn.clicked` accumulated connections on repeated calls. Added disconnect-before-connect.
+7. **`release.yml` used `uv pip install pyinstaller`** — redundant since pyinstaller already in dev group. Changed to direct `uv run pyinstaller`.
+
+### Fixed (Minor)
+
+8. **Hardcoded magic numbers** — MCL attractor threshold (`0.01`), prune threshold (`1e-5`), variant convergence threshold (`1e-6`) moved to `ClusteringDefaults` in constants.py.
+9. **CSL boundary thresholds** — low-angle (`2.0°`) and high-angle (`15.0°`) hardcoded in `_classify_csl` moved to `CSLParams` in constants.py.
+
+### Open items (not fixed)
+
+- `_compute_neighbors` still O(rows*cols) pixel loop — should use grain-level adjacency from labeled_2d.
+- `_DARK_BG`, `_DARK_FG`, `_GRID_COLOR` duplicated in stats_panel.py and pole_figure.py.
+- Stop button still not connected to cancellation logic.
+- `highlight_region` still a no-op stub.
+
 ### Open items from previous reviews (still open)
 
 - Proper cancellation support for reconstruction worker (QThread.requestInterruption)

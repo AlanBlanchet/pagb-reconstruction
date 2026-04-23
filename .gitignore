@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Build artifacts
+_version.py
+*.AppImage
+*.spec.bak

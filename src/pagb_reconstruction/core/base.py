@@ -130,6 +130,14 @@ class SpatialMap(Displayable):
             for attr_name, attr in vars(klass).items():
                 meta = getattr(attr, _MAP_PROPERTY_ATTR, None)
                 if meta is not None and meta.name == name:
-                    return getattr(self, attr_name)(**kwargs)
+                    try:
+                        return getattr(self, attr_name)(**kwargs)
+                    except Exception as e:
+                        import logging
+
+                        logging.getLogger(__name__).error(
+                            "Error computing %s: %s", name, e
+                        )
+                        raise
         msg = f"Unknown map property: {name}"
         raise KeyError(msg)

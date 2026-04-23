@@ -1,5 +1,46 @@
 # Generalizer Memory
 
+## 2026-04-23: Third pass — hardcoded colors, redundant model_config, Grain.row_col
+
+### Changes made
+
+1. **theme.py expanded** — Added `SURFACE_DIM`, `TEXT_MUTED`, `TEXT_DISABLED` constants for remaining Catppuccin colors. `apply_theme()` now references constants instead of hardcoded strings.
+
+2. **map_viewer.py fully themed** — All 8 hardcoded color literals replaced with theme constants via imports+f-strings: `ACCENT` for crosshairs/overlay, `EDGE_COLOR`+`ACCENT` for computing overlay, `SURFACE_DIM`+`TEXT_MUTED` for status strip, `DARK_FG`+`GRID_COLOR` for grain overlay, `TEXT_DISABLED`+`GRID_COLOR` for placeholder.
+
+3. **reconstruction_panel.py** — Progress bar gradient now uses `ACCENT` constant.
+
+4. **Removed 6 redundant `model_config = ConfigDict(arbitrary_types_allowed=True)`** — on `OrientationData`, `VariantAnalyzer`, `EBSDMap`, `OrientationRelationship`, `Grain`, `ReconstructionResult`. All inherit from `Displayable` which already declares it. Cleaned up unused `ConfigDict` imports from 4 files.
+
+5. **`Grain.row_col` property** — Extracted repeated `pixel_indices // cols, pixel_indices % cols` pattern (4× in grain.py + ebsd_map.py) into single `row_col` property on Grain. Used in `aspect_ratio`, `perimeter`, `grain_id_map`, `gos_map`.
+
+### Occurrence counts after
+
+- Hardcoded theme colors outside theme.py: 0 in Python code (was 8 in map_viewer, 1 in reconstruction_panel)
+- `model_config = ConfigDict(arbitrary_types_allowed=True)`: 2 (base.py definition + constants.py SlipSystems — non-Displayable)
+- `pixel_indices // cols` + `pixel_indices % cols`: 1 occurrence (grod_map per-pixel loop — different pattern)
+
+### Files changed
+
+- `ui/theme.py`: +3 lines (3 new constants), ~6 lines changed (apply_theme)
+- `ui/widgets/map_viewer.py`: +8 import lines, ~0 net (f-string replacements)
+- `ui/widgets/reconstruction_panel.py`: +1 import, 1 line changed
+- `core/grain.py`: +4 lines (row_col property), −3 lines (simplified aspect_ratio/perimeter)
+- `core/ebsd_map.py`: −5 lines (removed cols variable + manual r/c calc, removed ConfigDict import)
+- `core/orientation.py`: −2 lines (removed ConfigDict import + model_config)
+- `core/variant.py`: −2 lines (removed ConfigDict import + model_config)
+- `core/orientation_relationship.py`: −2 lines (removed ConfigDict import + model_config)
+- `core/reconstruction.py`: −2 lines (removed ConfigDict import + model_config)
+
+**Net: ~10 lines removed, 8 hardcoded color violations fixed, 6 redundant declarations removed**
+
+### Open items (unchanged)
+
+- `_primary_symmetry_quats` called 14× (8 in ebsd_map, 6 via `self._map._primary_symmetry_quats()` in reconstruction) — single-owner accessor pattern, acceptable.
+- `_setup_ui` 7× — method name convention, not logic duplication.
+- `setContentsMargins(4, 4, 4, 4)` 9× — Qt layout boilerplate, not worth extracting.
+- Colors inside theme.py CSS string — these ARE the single source of truth for Qt stylesheet; not extractable further without template engine.
+
 ## 2026-04-23: Second pass — theme dedup + rich map metadata
 
 ### Changes made
