@@ -1,7 +1,9 @@
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QGroupBox,
     QLabel,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -41,9 +43,16 @@ class ParamPanel(QWidget):
         layout.addWidget(QLabel("Preset:"))
         layout.addWidget(preset_row)
 
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
         self._form = self._config.to_widget(self)
         self._apply_tooltips()
-        layout.addWidget(self._form)
+        self._form.setMinimumHeight(self._form.sizeHint().height())
+        self._scroll.setWidget(self._form)
+        layout.addWidget(self._scroll)
 
     def _apply_preset(self, name: str):
         preset = _PRESETS.get(name)
@@ -53,8 +62,8 @@ class ParamPanel(QWidget):
         old_form = self._form
         self._form = self._config.to_widget(self)
         self._apply_tooltips()
-        parent_layout = self.layout()
-        parent_layout.replaceWidget(old_form, self._form)
+        self._form.setMinimumHeight(self._form.sizeHint().height())
+        self._scroll.setWidget(self._form)
         old_form.deleteLater()
 
     def _apply_tooltips(self):
