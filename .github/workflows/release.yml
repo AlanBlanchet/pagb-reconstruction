@@ -68,14 +68,14 @@ jobs:
         run: uv run pyinstaller pagb.spec --noconfirm
 
       - name: Build with PyInstaller (onefile)
-        run: uv run pyinstaller pagb-onefile.spec --noconfirm
+        run: uv run pyinstaller pagb-onefile.spec --noconfirm --distpath dist-onefile
 
       - name: Package Windows archive
         run: Compress-Archive -Path dist\pagb-reconstruction -DestinationPath pagb-reconstruction-windows-x86_64.zip
         shell: pwsh
 
       - name: Copy exe to root
-        run: copy dist\pagb-reconstruction.exe pagb-reconstruction.exe
+        run: copy dist-onefile\pagb-reconstruction.exe pagb-reconstruction.exe
         shell: cmd
 
       - name: Upload artifacts
