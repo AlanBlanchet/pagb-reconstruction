@@ -24,18 +24,28 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
 
+      - name: Install appimagetool
+        run: |
+          sudo wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool
+          sudo chmod +x /usr/local/bin/appimagetool
+
       - name: Build with PyInstaller
         run: uv run pyinstaller pagb.spec --noconfirm
 
       - name: Build AppImage
-        run: bash packaging/build-appimage.sh
+        run: uv run bash packaging/build-appimage.sh
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+
+      - name: Package Linux archive
+        run: cd dist && tar czf ../pagb-reconstruction-linux-x86_64.tar.gz pagb-reconstruction/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: linux-build
           path: |
-            dist/pagb-reconstruction/
+            pagb-reconstruction-linux-x86_64.tar.gz
             *.AppImage
 
   build-windows:
@@ -57,11 +67,15 @@ jobs:
       - name: Build with PyInstaller
         run: uv run pyinstaller pagb.spec --noconfirm
 
+      - name: Package Windows archive
+        run: Compress-Archive -Path dist\pagb-reconstruction -DestinationPath pagb-reconstruction-windows-x86_64.zip
+        shell: pwsh
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: dist/pagb-reconstruction/
+          path: pagb-reconstruction-windows-x86_64.zip
 
   release:
     needs: [build-linux, build-windows]
@@ -69,28 +83,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download Linux artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          name: linux-build
-          path: linux-build/
-
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-build
-          path: windows-build/
-
-      - name: Package archives
-        run: |
-          cd linux-build && tar czf ../pagb-reconstruction-linux-x86_64.tar.gz pagb-reconstruction/ && cd ..
-          cd windows-build && zip -r ../pagb-reconstruction-windows-x86_64.zip pagb-reconstruction/ && cd ..
+          path: release-assets/
+          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: |
-            pagb-reconstruction-linux-x86_64.tar.gz
-            pagb-reconstruction-windows-x86_64.zip
-            linux-build/*.AppImage
+          files: release-assets/*
