@@ -64,18 +64,27 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
 
-      - name: Build with PyInstaller
+      - name: Build with PyInstaller (directory)
         run: uv run pyinstaller pagb.spec --noconfirm
+
+      - name: Build with PyInstaller (onefile)
+        run: uv run pyinstaller pagb-onefile.spec --noconfirm
 
       - name: Package Windows archive
         run: Compress-Archive -Path dist\pagb-reconstruction -DestinationPath pagb-reconstruction-windows-x86_64.zip
         shell: pwsh
 
+      - name: Copy exe to root
+        run: copy dist\pagb-reconstruction.exe pagb-reconstruction.exe
+        shell: cmd
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: pagb-reconstruction-windows-x86_64.zip
+          path: |
+            pagb-reconstruction-windows-x86_64.zip
+            pagb-reconstruction.exe
 
   release:
     needs: [build-linux, build-windows]
