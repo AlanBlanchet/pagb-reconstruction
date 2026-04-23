@@ -19,6 +19,7 @@ from pagb_reconstruction.core.reconstruction import (
     ReconstructionEngine,
     ReconstructionResult,
 )
+from pagb_reconstruction.ui.theme import ACCENT
 
 _STEP_NAMES = [
     "Detecting grains", "Setting up OR", "Refining OR",
@@ -89,8 +90,8 @@ class ReconstructionPanel(QWidget):
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 100)
         self._progress_bar.setStyleSheet(
-            "QProgressBar::chunk { background: qlineargradient("
-            "x1:0, y1:0, x2:1, y2:0, stop:0 #89b4fa, stop:1 #74c7ec); }"
+            f"QProgressBar::chunk {{ background: qlineargradient("
+            f"x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT}, stop:1 #74c7ec); }}"
         )
         progress_layout.addWidget(self._progress_bar, 1)
         self._step_counter = QLabel("")

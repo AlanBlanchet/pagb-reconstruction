@@ -2,7 +2,7 @@ from typing import Literal
 
 import numpy as np
 from orix.quaternion import Orientation
-from pydantic import ConfigDict, Field
+from pydantic import Field
 
 from pagb_reconstruction.core.base import Displayable
 from pagb_reconstruction.core.ebsd_map import EBSDMap
@@ -15,7 +15,8 @@ from pagb_reconstruction.core.graph import (
     vote_fill,
 )
 from pagb_reconstruction.core.orientation_relationship import OrientationRelationship
-from pagb_reconstruction.utils.math_ops import misorientation_angle_pair
+from pagb_reconstruction.utils.array_ops import align_hemisphere, grain_index_map, remap_labels
+from pagb_reconstruction.utils.math_ops import MisorientationOps
 
 
 class ReconstructionConfig(Displayable):
@@ -74,7 +75,6 @@ class ReconstructionConfig(Displayable):
 
 
 class ReconstructionResult(Displayable):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     parent_orientations: np.ndarray
     parent_grain_ids: np.ndarray
@@ -244,15 +244,12 @@ class ReconstructionEngine:
         for label in unique_labels:
             members = np.where(self._parent_labels == label)[0]
             qs = per_grain_parents[members]
-            ref = qs[0]
-            for k in range(1, len(qs)):
-                if np.dot(qs[k], ref) < 0:
-                    qs[k] = -qs[k]
+            qs = align_hemisphere(qs, qs[0])
             mean_q = qs.mean(axis=0)
             norm = np.linalg.norm(mean_q)
             parent_quats[label_map[label]] = mean_q / norm if norm > 1e-10 else np.array([1, 0, 0, 0])
 
-        self._parent_labels = np.array([label_map[l] for l in self._parent_labels], dtype=np.int32)
+        self._parent_labels = remap_labels(self._parent_labels)
         return parent_quats
 
     def _refine_or(self) -> OrientationRelationship:
@@ -263,13 +260,13 @@ class ReconstructionEngine:
             return self._or
 
         grain_quats = np.array([g.mean_quaternion for g in self._grains])
-        grain_id_map = {g.id: idx for idx, g in enumerate(self._grains)}
+        gid_map = grain_index_map(self._grains)
         pairs = []
         for grain in self._grains:
             for nid in grain.neighbor_ids:
-                j = grain_id_map.get(nid)
-                if j is not None and j > grain_id_map[grain.id]:
-                    pairs.append((grain_id_map[grain.id], j))
+                j = gid_map.get(nid)
+                if j is not None and j > gid_map[grain.id]:
+                    pairs.append((gid_map[grain.id], j))
 
         if not pairs:
             return self._or
@@ -308,7 +305,7 @@ class ReconstructionEngine:
                     parent_j = child_ori_j * (~var_ori)
                     pi_q = parent_i.data.flatten()
                     pj_q = parent_j.data.flatten()
-                    angle = misorientation_angle_pair(pi_q, pj_q, sym_quats)
+                    angle = MisorientationOps.pair(pi_q, pj_q, sym_quats)
                     if angle < best_angle:
                         best_angle = angle
                 total_fit += best_angle
@@ -343,11 +340,7 @@ class ReconstructionEngine:
 
             if all_candidates:
                 all_c = np.vstack(all_candidates)
-                # Normalize quaternions to same hemisphere before averaging
-                reference = all_c[0]
-                for k in range(1, len(all_c)):
-                    if np.dot(all_c[k], reference) < 0:
-                        all_c[k] = -all_c[k]
+                all_c = align_hemisphere(all_c, all_c[0])
                 mean_q = all_c.mean(axis=0)
                 norm = np.linalg.norm(mean_q)
                 parent_quats[idx] = (
@@ -368,26 +361,32 @@ class ReconstructionEngine:
 
         merge_map = {l: l for l in unique_labels}
 
+        def _find_root(label):
+            while merge_map[label] != label:
+                merge_map[label] = merge_map[merge_map[label]]
+                label = merge_map[label]
+            return label
+
         for i in range(n):
             for j in range(i + 1, n):
                 li, lj = unique_labels[i], unique_labels[j]
                 if li >= len(self._parent_quats) or lj >= len(self._parent_quats):
                     continue
-                angle = misorientation_angle_pair(
+                angle = MisorientationOps.pair(
                     self._parent_quats[li], self._parent_quats[lj], sym_quats
                 )
                 if angle < self._config.merge_similar_deg:
-                    merge_map[lj] = li
+                    ri, rj = _find_root(li), _find_root(lj)
+                    if ri != rj:
+                        merge_map[rj] = ri
 
         for i in range(len(self._parent_labels)):
-            self._parent_labels[i] = merge_map.get(
-                self._parent_labels[i], self._parent_labels[i]
-            )
+            self._parent_labels[i] = _find_root(self._parent_labels[i])
 
     def _merge_inclusions(self):
         if self._config.merge_inclusions_max_size <= 0:
             return
-        grain_id_to_idx = {g.id: idx for idx, g in enumerate(self._grains)}
+        grain_id_to_idx = grain_index_map(self._grains)
         unique_labels = np.unique(self._parent_labels)
         for label in unique_labels:
             indices = np.where(self._parent_labels == label)[0]
@@ -441,10 +440,10 @@ class ReconstructionEngine:
                     best_variant = v_idx
 
             variant_ids[grain.pixel_indices] = best_variant
-            packet_ids[grain.pixel_indices] = (
-                best_variant // 6 if n_variants >= 6 else 0
-            )
-            bain_ids[grain.pixel_indices] = best_variant % 3
+            variants_per_packet = max(n_variants // 4, 1)
+            n_bain = min(n_variants, 3)
+            packet_ids[grain.pixel_indices] = best_variant // variants_per_packet
+            bain_ids[grain.pixel_indices] = best_variant % n_bain
 
         return variant_ids, packet_ids, bain_ids
 
@@ -466,7 +465,7 @@ class ReconstructionEngine:
             if len(candidates) == 0:
                 continue
             deviations = [
-                misorientation_angle_pair(c, parent_q, sym_quats) for c in candidates
+                MisorientationOps.pair(c, parent_q, sym_quats) for c in candidates
             ]
             fit[grain.pixel_indices] = np.min(deviations)
 

@@ -1,13 +1,11 @@
 import numpy as np
 from orix.quaternion import Orientation
-from pydantic import ConfigDict
 
 from pagb_reconstruction.core.base import Displayable
 from pagb_reconstruction.core.orientation_relationship import OrientationRelationship
 
 
 class VariantAnalyzer(Displayable):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     or_relationship: OrientationRelationship
     variant_ids: np.ndarray
@@ -24,7 +22,8 @@ class VariantAnalyzer(Displayable):
         return self.variant_ids // variants_per_packet
 
     def bain_group_ids(self) -> np.ndarray:
-        return self.variant_ids % 3
+        n_bain = min(self.n_variants, 3)
+        return self.variant_ids % n_bain
 
     def variant_frequency(self) -> dict[int, int]:
         unique, counts = np.unique(self.variant_ids, return_counts=True)

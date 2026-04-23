@@ -90,10 +90,41 @@ def _default_lattice(point_group: str) -> LatticeParams:
     return LatticeParams(a=3.0, b=3.0, c=3.0)
 
 
-_CUBIC_POINT_GROUPS = {"m-3m", "432", "-43m", "m-3", "23"}
+_POINT_GROUP_FAMILIES: dict[str, CrystalFamily] = {
+    "m-3m": CrystalFamily.CUBIC,
+    "432": CrystalFamily.CUBIC,
+    "-43m": CrystalFamily.CUBIC,
+    "m-3": CrystalFamily.CUBIC,
+    "23": CrystalFamily.CUBIC,
+    "6/mmm": CrystalFamily.HEXAGONAL,
+    "622": CrystalFamily.HEXAGONAL,
+    "-6m2": CrystalFamily.HEXAGONAL,
+    "6mm": CrystalFamily.HEXAGONAL,
+    "6/m": CrystalFamily.HEXAGONAL,
+    "-6": CrystalFamily.HEXAGONAL,
+    "6": CrystalFamily.HEXAGONAL,
+    "4/mmm": CrystalFamily.TETRAGONAL,
+    "422": CrystalFamily.TETRAGONAL,
+    "-42m": CrystalFamily.TETRAGONAL,
+    "4mm": CrystalFamily.TETRAGONAL,
+    "4/m": CrystalFamily.TETRAGONAL,
+    "-4": CrystalFamily.TETRAGONAL,
+    "4": CrystalFamily.TETRAGONAL,
+    "-3m": CrystalFamily.TRIGONAL,
+    "32": CrystalFamily.TRIGONAL,
+    "3m": CrystalFamily.TRIGONAL,
+    "-3": CrystalFamily.TRIGONAL,
+    "3": CrystalFamily.TRIGONAL,
+    "mmm": CrystalFamily.ORTHORHOMBIC,
+    "222": CrystalFamily.ORTHORHOMBIC,
+    "mm2": CrystalFamily.ORTHORHOMBIC,
+    "2/m": CrystalFamily.MONOCLINIC,
+    "2": CrystalFamily.MONOCLINIC,
+    "m": CrystalFamily.MONOCLINIC,
+    "-1": CrystalFamily.TRICLINIC,
+    "1": CrystalFamily.TRICLINIC,
+}
 
 
 def _family_from_point_group(pg: str) -> CrystalFamily:
-    if pg in _CUBIC_POINT_GROUPS:
-        return CrystalFamily.CUBIC
-    return CrystalFamily.CUBIC
+    return _POINT_GROUP_FAMILIES.get(pg, CrystalFamily.CUBIC)

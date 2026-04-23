@@ -80,18 +80,6 @@ def _misori_angle_simple(
     return min_angle
 
 
-def misorientation_angle_pair(
-    q1: np.ndarray, q2: np.ndarray, symmetry_quats: np.ndarray
-) -> float:
-    return float(
-        _misori_angle_simple(
-            q1.astype(np.float64),
-            q2.astype(np.float64),
-            symmetry_quats.astype(np.float64),
-        )
-    )
-
-
 @njit(cache=True, parallel=True)
 def _misori_horizontal(
     quats: np.ndarray, rows: int, cols: int, sym_quats: np.ndarray
@@ -120,17 +108,6 @@ def _misori_vertical(
                 quats[idx1], quats[idx2], sym_quats
             )
     return result
-
-
-def misorientation_angle_neighbors(
-    quaternions: np.ndarray, shape: tuple[int, int], symmetry_quats: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
-    rows, cols = shape
-    quats = quaternions.astype(np.float64)
-    sym = symmetry_quats.astype(np.float64)
-    misori_h = _misori_horizontal(quats, rows, cols, sym)
-    misori_v = _misori_vertical(quats, rows, cols, sym)
-    return misori_h, misori_v
 
 
 @njit(cache=True)
@@ -180,12 +157,57 @@ def _misori_axis_angle_with_symmetry(
     return min_angle, best_axis
 
 
-def misorientation_axis_angle_pair(
-    q1: np.ndarray, q2: np.ndarray, symmetry_quats: np.ndarray
-) -> tuple[float, np.ndarray]:
-    angle, axis = _misori_axis_angle_with_symmetry(
-        q1.astype(np.float64),
-        q2.astype(np.float64),
-        symmetry_quats.astype(np.float64),
-    )
-    return float(angle), axis
+class QuaternionOps:
+    multiply = staticmethod(quaternion_multiply)
+    conjugate = staticmethod(quaternion_conjugate)
+    angle = staticmethod(quaternion_angle)
+    multiply_batch = staticmethod(quaternion_multiply_batch)
+
+
+class MisorientationOps:
+    _angle_with_symmetry = staticmethod(_misori_angle_with_symmetry)
+    _angle_simple = staticmethod(_misori_angle_simple)
+    _horizontal = staticmethod(_misori_horizontal)
+    _vertical = staticmethod(_misori_vertical)
+    _axis_angle_with_symmetry = staticmethod(_misori_axis_angle_with_symmetry)
+
+    @staticmethod
+    def pair(
+        q1: np.ndarray, q2: np.ndarray, symmetry_quats: np.ndarray
+    ) -> float:
+        return float(
+            _misori_angle_simple(
+                q1.astype(np.float64),
+                q2.astype(np.float64),
+                symmetry_quats.astype(np.float64),
+            )
+        )
+
+    @staticmethod
+    def neighbors(
+        quaternions: np.ndarray,
+        shape: tuple[int, int],
+        symmetry_quats: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        rows, cols = shape
+        quats = quaternions.astype(np.float64)
+        sym = symmetry_quats.astype(np.float64)
+        misori_h = _misori_horizontal(quats, rows, cols, sym)
+        misori_v = _misori_vertical(quats, rows, cols, sym)
+        return misori_h, misori_v
+
+    @staticmethod
+    def axis_angle_pair(
+        q1: np.ndarray, q2: np.ndarray, symmetry_quats: np.ndarray
+    ) -> tuple[float, np.ndarray]:
+        angle, axis = _misori_axis_angle_with_symmetry(
+            q1.astype(np.float64),
+            q2.astype(np.float64),
+            symmetry_quats.astype(np.float64),
+        )
+        return float(angle), axis
+
+
+class MathOps:
+    _erf_approx = staticmethod(_erf_approx)
+    cumulative_gaussian = staticmethod(cumulative_gaussian)

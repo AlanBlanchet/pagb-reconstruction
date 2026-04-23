@@ -3,7 +3,6 @@ from typing import ClassVar
 
 import numpy as np
 from orix.quaternion import Orientation
-from pydantic import ConfigDict
 
 from pagb_reconstruction.core.base import Displayable
 from pagb_reconstruction.core.phase import PhaseConfig
@@ -18,7 +17,6 @@ def _register(key: str) -> Callable:
 
 
 class OrientationRelationship(Displayable):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     name: str
     description: str = ""

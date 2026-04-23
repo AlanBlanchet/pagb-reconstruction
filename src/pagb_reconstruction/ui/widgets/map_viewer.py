@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, Signal
@@ -16,6 +18,18 @@ from PySide6.QtWidgets import (
 from pagb_reconstruction.core.base import _MapPropertyMeta
 from pagb_reconstruction.core.ebsd_map import EBSDMap
 from pagb_reconstruction.core.reconstruction import ReconstructionResult
+from pagb_reconstruction.ui.theme import (
+    ACCENT,
+    DARK_FG,
+    EDGE_COLOR,
+    GRID_COLOR,
+    SURFACE_DIM,
+    TEXT_DISABLED,
+    TEXT_MUTED,
+)
+from pagb_reconstruction.ui.widgets.compute_worker import ComputeWorker
+
+logger = logging.getLogger(__name__)
 
 
 class MapViewer(QWidget):
@@ -30,6 +44,8 @@ class MapViewer(QWidget):
         self._boundary_visible = False
         self._current_image: np.ndarray | None = None
         self._hist_eq_enabled = False
+        self._active_worker: ComputeWorker | None = None
+        self._compute_generation = 0
         self._setup_ui()
 
     def _setup_ui(self):
@@ -71,10 +87,10 @@ class MapViewer(QWidget):
         self._boundary_item.setVisible(False)
 
         self._crosshair_h = pg.InfiniteLine(
-            angle=0, pen=pg.mkPen("#89b4fa", width=1, style=Qt.PenStyle.DashLine)
+            angle=0, pen=pg.mkPen(ACCENT, width=1, style=Qt.PenStyle.DashLine)
         )
         self._crosshair_v = pg.InfiniteLine(
-            angle=90, pen=pg.mkPen("#89b4fa", width=1, style=Qt.PenStyle.DashLine)
+            angle=90, pen=pg.mkPen(ACCENT, width=1, style=Qt.PenStyle.DashLine)
         )
         self._crosshair_h.setVisible(False)
         self._crosshair_v.setVisible(False)
@@ -104,18 +120,28 @@ class MapViewer(QWidget):
 
         layout.addWidget(self._graphics_view, 1)
 
+        self._computing_overlay = QLabel("")
+        self._computing_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._computing_overlay.setFixedHeight(32)
+        self._computing_overlay.setStyleSheet(
+            f"background: {EDGE_COLOR}; color: {ACCENT}; font-size: 13px; "
+            "padding: 6px 16px; border-radius: 4px;"
+        )
+        self._computing_overlay.setVisible(False)
+        layout.addWidget(self._computing_overlay)
+
         self._status_strip = QLabel("")
         self._status_strip.setFixedHeight(22)
         self._status_strip.setStyleSheet(
-            "background: #181825; color: #a6adc8; padding: 2px 8px; font-size: 11px; font-family: monospace;"
+            f"background: {SURFACE_DIM}; color: {TEXT_MUTED}; padding: 2px 8px; font-size: 11px; font-family: monospace;"
         )
         layout.addWidget(self._status_strip)
 
         self._grain_overlay = QLabel("")
         self._grain_overlay.setWordWrap(True)
         self._grain_overlay.setStyleSheet(
-            "background: rgba(24,24,37,210); color: #cdd6f4; padding: 8px 10px; "
-            "font-size: 12px; border-radius: 6px; border: 1px solid #45475a;"
+            f"background: rgba(24,24,37,210); color: {DARK_FG}; padding: 8px 10px; "
+            f"font-size: 12px; border-radius: 6px; border: 1px solid {GRID_COLOR};"
         )
         self._grain_overlay.setVisible(False)
         layout.addWidget(self._grain_overlay)
@@ -126,8 +152,8 @@ class MapViewer(QWidget):
         )
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setStyleSheet(
-            "font-size: 18px; color: #585b70; padding: 40px; "
-            "border: 2px dashed #45475a; border-radius: 12px; margin: 40px;"
+            f"font-size: 18px; color: {TEXT_DISABLED}; padding: 40px; "
+            f"border: 2px dashed {GRID_COLOR}; border-radius: 12px; margin: 40px;"
         )
         layout.addWidget(self._placeholder)
         self._graphics_view.setVisible(False)
@@ -210,12 +236,42 @@ class MapViewer(QWidget):
         mode = self._display_combo.currentText()
         if not mode:
             return
-        image = self._compute_image(mode)
+
+        self._compute_generation += 1
+        gen = self._compute_generation
+
+        if self._active_worker is not None and self._active_worker.isRunning():
+            self._active_worker.finished.disconnect()
+            self._active_worker.error.disconnect()
+            self._active_worker = None
+
+        meta = self._find_meta(mode)
+        self._computing_overlay.setText(f"Computing {mode}...")
+        self._computing_overlay.setVisible(True)
+        self._display_combo.setEnabled(False)
+
+        worker = ComputeWorker(self._compute_image, mode)
+        worker.finished.connect(
+            lambda img, g=gen, m=meta: self._on_compute_done(img, m, g)
+        )
+        worker.error.connect(lambda msg, g=gen: self._on_compute_error(msg, g))
+        self._active_worker = worker
+        worker.start()
+
+    def _on_compute_done(self, image, meta, generation):
+        if generation != self._compute_generation:
+            return
+        self._computing_overlay.setVisible(False)
+        self._display_combo.setEnabled(True)
+        self._active_worker = None
         if image is None:
             return
         self._current_image = image
-        meta = self._find_meta(mode)
-        is_rgb = meta.dtype == "rgb" if meta else (image.ndim == 3 and image.shape[2] in (3, 4))
+        is_rgb = (
+            meta.dtype == "rgb"
+            if meta
+            else (image.ndim == 3 and image.shape[2] in (3, 4))
+        )
         if is_rgb:
             display = self._apply_hist_eq_rgb(image) if self._hist_eq_enabled else image
             self._image_item.setImage(display, autoLevels=True)
@@ -223,13 +279,21 @@ class MapViewer(QWidget):
             self._colorbar_plot.setVisible(False)
         else:
             display = self._apply_hist_eq(image) if self._hist_eq_enabled else image
-            cmap_name = (meta.colormap if meta and meta.colormap else self._colormap_name)
+            cmap_name = meta.colormap if meta and meta.colormap else self._colormap_name
             cmap = pg.colormap.get(cmap_name, source="matplotlib")
             lut = cmap.getLookupTable(nPts=256)
             self._image_item.setImage(display, autoLevels=True)
             self._image_item.setLookupTable(lut)
             self._update_colorbar(display)
         self._update_boundary()
+
+    def _on_compute_error(self, msg, generation):
+        if generation != self._compute_generation:
+            return
+        self._computing_overlay.setText(f"Error: {msg}")
+        self._display_combo.setEnabled(True)
+        self._active_worker = None
+        logger.error("Map computation failed: %s", msg)
 
     @staticmethod
     def _find_meta(name: str) -> _MapPropertyMeta | None:

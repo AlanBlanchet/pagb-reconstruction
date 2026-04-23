@@ -1,13 +1,11 @@
 import numpy as np
 from orix.quaternion import Orientation, Symmetry
 from orix.vector import Vector3d
-from pydantic import ConfigDict
 
 from pagb_reconstruction.core.base import Displayable
 
 
 class OrientationData(Displayable):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     quaternions: np.ndarray  # (N, 4) array
     symmetry: Symmetry

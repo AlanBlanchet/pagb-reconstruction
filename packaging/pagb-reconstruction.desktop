@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=PAGB Reconstruction
+Comment=Prior Austenite Grain Boundary reconstruction from EBSD data
+Exec=pagb-reconstruction
+Icon=pagb-reconstruction
+Categories=Science;Education;
+Terminal=false
