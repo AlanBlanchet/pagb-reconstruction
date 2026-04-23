@@ -1,17 +1,27 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import copy_metadata
+
+datas = copy_metadata('pagb-reconstruction')
 
 a = Analysis(
     ["src/pagb_reconstruction/app.py"],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=datas,
     hiddenimports=[
         "pagb_reconstruction",
         "orix",
+        "orix.quaternion.symmetry",
         "h5py",
         "numba",
         "scipy",
         "sklearn",
+        "networkx",
+        "pydantic",
+        "packaging",
+        "matplotlib",
+        "matplotlib.backends.backend_agg",
+        "matplotlib.backends.backend_qtagg",
         "PySide6",
         "pyqtgraph",
         "qdarktheme",

@@ -202,3 +202,13 @@ anel.py: Volume fraction percentages, QPixmap color swatches, crystal family nam
 - Numba @njit cannot decorate class methods directly — must stay module-level, wrap via staticmethod()
 - Generation counter pattern handles stale async results cleanly (no thread cancellation needed)
 - grain.py had function-level import of math_ops — no circular dep, moved to module level
+
+## Release Workflow Fixes (2026-04-23)
+
+- release.yml: Added appimagetool install step (downloaded to /usr/local/bin with sudo)
+- release.yml: AppImage build uses `uv run bash` so python3 resolves to venv Python; `APPIMAGE_EXTRACT_AND_RUN=1` env for FUSE-less CI
+- release.yml: Archives (tar.gz, zip) now built in build jobs, not release job — avoids artifact path flattening issues
+- release.yml: Release job uses `download-artifact` with `merge-multiple: true` to flatten all artifacts into one dir
+- build-appimage.sh: Replaced ImageMagick `convert` with Pillow (PIL) one-liner for icon generation; added icon copy to AppDir root for AppImage spec compliance
+- pagb.spec: Added `copy_metadata('pagb-reconstruction')` to datas for `importlib.metadata.version()` to work in frozen builds
+- pagb.spec: Added hidden imports: networkx, pydantic, packaging, matplotlib (+ backends), orix.quaternion.symmetry
