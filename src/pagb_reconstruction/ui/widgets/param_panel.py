@@ -1,7 +1,6 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
-    QGroupBox,
     QLabel,
     QScrollArea,
     QVBoxLayout,
@@ -13,19 +12,40 @@ from pagb_reconstruction.core.reconstruction import ReconstructionConfig
 _PRESETS = {
     "Default": ReconstructionConfig(),
     "Fine": ReconstructionConfig(
-        threshold_deg=1.5, tolerance_deg=1.5, grain_threshold_deg=3.0,
-        min_grain_size=3, merge_similar_deg=5.0, inflation_power=1.8,
+        threshold_deg=1.5,
+        tolerance_deg=1.5,
+        grain_threshold_deg=3.0,
+        min_grain_size=3,
+        merge_similar_deg=5.0,
+        inflation_power=1.8,
     ),
     "Coarse": ReconstructionConfig(
-        threshold_deg=4.0, tolerance_deg=4.0, grain_threshold_deg=8.0,
-        min_grain_size=10, merge_similar_deg=10.0, inflation_power=1.4,
+        threshold_deg=4.0,
+        tolerance_deg=4.0,
+        grain_threshold_deg=8.0,
+        min_grain_size=10,
+        merge_similar_deg=10.0,
+        inflation_power=1.4,
     ),
 }
 
 _FIELD_GROUPS = {
     "Grain Detection": ["grain_threshold_deg", "min_grain_size"],
-    "Clustering": ["algorithm", "or_type", "optimize_or", "threshold_deg", "tolerance_deg", "inflation_power", "min_cluster_size"],
-    "Post-processing": ["revert_threshold_deg", "merge_similar_deg", "merge_inclusions_max_size", "n_vote_iterations"],
+    "Clustering": [
+        "algorithm",
+        "or_type",
+        "optimize_or",
+        "threshold_deg",
+        "tolerance_deg",
+        "inflation_power",
+        "min_cluster_size",
+    ],
+    "Post-processing": [
+        "revert_threshold_deg",
+        "merge_similar_deg",
+        "merge_inclusions_max_size",
+        "n_vote_iterations",
+    ],
 }
 
 
@@ -68,6 +88,7 @@ class ParamPanel(QWidget):
 
     def _apply_tooltips(self):
         from pagb_reconstruction.ui.model_widget import ModelFormWidget
+
         if not isinstance(self._form, ModelFormWidget):
             return
         for name, widget in self._form._field_widgets.items():

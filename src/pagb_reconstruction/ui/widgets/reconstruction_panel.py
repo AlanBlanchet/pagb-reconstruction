@@ -104,8 +104,8 @@ class ReconstructionPanel(QWidget):
 
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
-        self._log.setMaximumHeight(100)
-        layout.addWidget(self._log)
+        self._log.setMaximumHeight(80)
+        layout.addWidget(self._log, 1)
 
         self._results_group = QGroupBox("Results Summary")
         self._results_group.setVisible(False)

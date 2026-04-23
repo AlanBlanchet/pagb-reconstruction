@@ -8,7 +8,6 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
-    QHBoxLayout,
     QLabel,
     QMenu,
     QVBoxLayout,
@@ -51,23 +50,13 @@ class MapViewer(QWidget):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
+        layout.setSpacing(0)
 
-        controls = QHBoxLayout()
-        controls.addWidget(QLabel("Display:"))
         self._display_combo = QComboBox()
         self._display_combo.currentTextChanged.connect(self._update_display)
-        controls.addWidget(self._display_combo)
 
         self._hist_eq_cb = QCheckBox("Hist. EQ")
         self._hist_eq_cb.toggled.connect(self._on_hist_eq_toggled)
-        controls.addWidget(self._hist_eq_cb)
-
-        controls.addStretch()
-
-        self._info_label = QLabel("")
-        controls.addWidget(self._info_label)
-        layout.addLayout(controls)
 
         self._graphics_view = pg.GraphicsLayoutWidget()
         self._plot = self._graphics_view.addPlot()

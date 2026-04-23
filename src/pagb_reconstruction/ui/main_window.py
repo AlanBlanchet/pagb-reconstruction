@@ -2,7 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -32,6 +32,10 @@ from pagb_reconstruction.ui.widgets.reconstruction_panel import ReconstructionPa
 from pagb_reconstruction.ui.widgets.stats_panel import StatsPanel
 from pagb_reconstruction.ui.widgets.update_bar import UpdateBar
 
+_MAX_RECENT = 8
+_SETTINGS_ORG = "PAGB"
+_SETTINGS_APP = "pagb-reconstruction"
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -39,7 +43,9 @@ class MainWindow(QMainWindow):
         self._ebsd_map: EBSDMap | None = None
         self._result = None
         self._recon_start = datetime.now()
+        self._settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
         self._setup_ui()
+        self._restore_state()
 
     def _setup_ui(self):
         self.setWindowTitle("PAGB Reconstruction")
@@ -195,6 +201,10 @@ class MainWindow(QMainWindow):
         file_menu.addAction(save_action)
 
         file_menu.addSeparator()
+        self._recent_menu = file_menu.addMenu("Open &Recent")
+        self._rebuild_recent_menu()
+
+        file_menu.addSeparator()
         quit_action = QAction("&Quit", self)
         quit_action.setShortcut(QKeySequence.StandardKey.Quit)
         quit_action.triggered.connect(self.close)
@@ -293,6 +303,12 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
+        toolbar.addWidget(QLabel(" Display: "))
+        toolbar.addWidget(self._map_viewer._display_combo)
+        toolbar.addWidget(self._map_viewer._hist_eq_cb)
+
+        toolbar.addSeparator()
+
         self._cmap_combo = QComboBox()
         self._cmap_combo.addItems(
             ["viridis", "plasma", "magma", "inferno", "cividis", "turbo"]
@@ -349,7 +365,9 @@ class MainWindow(QMainWindow):
     def _check_updates(self):
         self._update_checker = UpdateChecker()
         self._update_checker.update_available.connect(
-            lambda info: self._update_bar.show_update(info.version, info.url)
+            lambda info: self._update_bar.show_update(
+                info.version, info.url, info.download_url
+            )
         )
         self._update_checker.start()
 
@@ -450,8 +468,11 @@ class MainWindow(QMainWindow):
     def _load_file(self, path: Path):
         try:
             self._ebsd_map = load_ebsd(path)
+            self._add_recent(path)
             self._map_viewer.set_ebsd_map(self._ebsd_map)
-            self._phase_panel.set_phases(self._ebsd_map.phases, self._ebsd_map.phase_ids)
+            self._phase_panel.set_phases(
+                self._ebsd_map.phases, self._ebsd_map.phase_ids
+            )
             n_pixels = self._ebsd_map.shape[0] * self._ebsd_map.shape[1]
             n_phases = len(self._ebsd_map.phases)
             self._file_label.setText(
@@ -601,3 +622,51 @@ class MainWindow(QMainWindow):
             self._log(f"Exported '{mode}' to {path}")
         except Exception as e:
             self._log(f"Export data ERROR: {e}")
+
+    # -- Recent files -------------------------------------------------------
+
+    def _recent_paths(self) -> list[str]:
+        return self._settings.value("recent_files", [], type=list)
+
+    def _add_recent(self, path: Path):
+        paths = self._recent_paths()
+        s = str(path)
+        if s in paths:
+            paths.remove(s)
+        paths.insert(0, s)
+        self._settings.setValue("recent_files", paths[:_MAX_RECENT])
+        self._rebuild_recent_menu()
+
+    def _rebuild_recent_menu(self):
+        self._recent_menu.clear()
+        paths = self._recent_paths()
+        if not paths:
+            action = self._recent_menu.addAction("(none)")
+            action.setEnabled(False)
+            return
+        for p in paths:
+            action = self._recent_menu.addAction(Path(p).name)
+            action.setToolTip(p)
+            action.triggered.connect(lambda checked, fp=p: self._load_file(Path(fp)))
+        self._recent_menu.addSeparator()
+        clear_action = self._recent_menu.addAction("Clear Recent")
+        clear_action.triggered.connect(self._clear_recent)
+
+    def _clear_recent(self):
+        self._settings.remove("recent_files")
+        self._rebuild_recent_menu()
+
+    # -- Window state -------------------------------------------------------
+
+    def _restore_state(self):
+        geo = self._settings.value("window_geometry")
+        if geo:
+            self.restoreGeometry(geo)
+        state = self._settings.value("window_state")
+        if state:
+            self.restoreState(state)
+
+    def closeEvent(self, event):
+        self._settings.setValue("window_geometry", self.saveGeometry())
+        self._settings.setValue("window_state", self.saveState())
+        super().closeEvent(event)
