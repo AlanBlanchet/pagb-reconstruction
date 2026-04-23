@@ -1,0 +1,99 @@
+from pathlib import Path
+from typing import ClassVar
+
+from orix.crystal_map import CrystalMap
+from orix.io import load as orix_load
+from pydantic import BaseModel
+
+from pagb_reconstruction.core.crystal import CrystalFamily, LatticeParams
+from pagb_reconstruction.core.ebsd_map import EBSDMap
+from pagb_reconstruction.core.phase import PhaseConfig
+
+
+class EBSDLoader(BaseModel):
+    supported_extensions: ClassVar[list[str]]
+
+    def load(self, path: Path) -> EBSDMap:
+        xmap = orix_load(str(path))
+        phases = extract_phases(xmap)
+        return EBSDMap(crystal_map=xmap, phases=phases)
+
+    def save(self, ebsd_map: EBSDMap, path: Path) -> None:
+        from orix.io import save as orix_save
+
+        orix_save(str(path), ebsd_map.crystal_map)
+
+
+_LOADERS: dict[str, type[EBSDLoader]] = {}
+
+
+def register_loader(loader_cls: type[EBSDLoader]):
+    for ext in loader_cls.supported_extensions:
+        _LOADERS[ext] = loader_cls
+
+
+def load_ebsd(path: str | Path) -> EBSDMap:
+    path = Path(path)
+    suffix = path.suffix.lower()
+
+    loader_cls = _LOADERS.get(suffix)
+    if loader_cls is None:
+        raise ValueError(
+            f"Unsupported file format: {suffix}. Supported: {list(_LOADERS.keys())}"
+        )
+
+    loader = loader_cls()
+    return loader.load(path)
+
+
+def extract_phases(xmap: CrystalMap) -> list[PhaseConfig]:
+    phases = []
+    phase_list = xmap.phases_in_data
+    for phase_id in phase_list.ids:
+        phase = phase_list[phase_id]
+        pg = str(phase.point_group) if phase.point_group else "m-3m"
+        lattice = (
+            phase.structure.lattice
+            if hasattr(phase, "structure") and phase.structure
+            else None
+        )
+        lp = _lattice_from_structure(lattice) if lattice else _default_lattice(pg)
+        family = _family_from_point_group(pg)
+        phases.append(
+            PhaseConfig(
+                name=phase.name or f"Phase {phase_id}",
+                family=family,
+                point_group=pg,
+                lattice=lp,
+                color=phase.color
+                if hasattr(phase, "color") and phase.color
+                else "#808080",
+            )
+        )
+    return phases
+
+
+def _lattice_from_structure(lattice) -> LatticeParams:
+    return LatticeParams(
+        a=lattice.a,
+        b=lattice.b,
+        c=lattice.c,
+        alpha=lattice.alpha,
+        beta=lattice.beta,
+        gamma=lattice.gamma,
+    )
+
+
+def _default_lattice(point_group: str) -> LatticeParams:
+    if "m-3m" in point_group or "43" in point_group:
+        return LatticeParams.cubic(2.87)
+    return LatticeParams(a=3.0, b=3.0, c=3.0)
+
+
+_CUBIC_POINT_GROUPS = {"m-3m", "432", "-43m", "m-3", "23"}
+
+
+def _family_from_point_group(pg: str) -> CrystalFamily:
+    if pg in _CUBIC_POINT_GROUPS:
+        return CrystalFamily.CUBIC
+    return CrystalFamily.CUBIC
