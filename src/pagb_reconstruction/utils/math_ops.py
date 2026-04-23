@@ -151,3 +151,41 @@ def _erf_approx(x: float) -> float:
         + 0.254829592
     ) * t * np.exp(-x * x)
     return sign * y
+
+
+@njit(cache=True)
+def _misori_axis_angle_with_symmetry(
+    q1: np.ndarray, q2: np.ndarray, sym_quats: np.ndarray
+) -> tuple[float, np.ndarray]:
+    q2_inv = quaternion_conjugate(q2)
+    mori = quaternion_multiply(q1, q2_inv)
+
+    min_angle = 360.0
+    best_axis = np.array([1.0, 0.0, 0.0])
+    n_sym = sym_quats.shape[0]
+
+    for i in range(n_sym):
+        equiv = quaternion_multiply(sym_quats[i], mori)
+        if equiv[0] < 0:
+            equiv = -equiv
+        angle = quaternion_angle(equiv)
+        if angle < min_angle:
+            min_angle = angle
+            norm = np.sqrt(equiv[1] ** 2 + equiv[2] ** 2 + equiv[3] ** 2)
+            if norm > 1e-10:
+                best_axis = np.array([equiv[1] / norm, equiv[2] / norm, equiv[3] / norm])
+            else:
+                best_axis = np.array([1.0, 0.0, 0.0])
+
+    return min_angle, best_axis
+
+
+def misorientation_axis_angle_pair(
+    q1: np.ndarray, q2: np.ndarray, symmetry_quats: np.ndarray
+) -> tuple[float, np.ndarray]:
+    angle, axis = _misori_axis_angle_with_symmetry(
+        q1.astype(np.float64),
+        q2.astype(np.float64),
+        symmetry_quats.astype(np.float64),
+    )
+    return float(angle), axis

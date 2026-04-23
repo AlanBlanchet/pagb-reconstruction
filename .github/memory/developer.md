@@ -48,8 +48,8 @@
 - EBSDMap: 15 @map_property methods total (11 original + Parent IPF, Parent + Boundaries, GOS, Misorientation)
 - GrainMetrics in core/grain_metrics.py: intercept + area methods → GrainSizeResult
 - Grain class: added equivalent_diameter, aspect_ratio, perimeter properties + map_width field
-- ReconstructionEngine.run() now sets self._map.grains after grain detection (required for GOS map)
-- _boundary_from_ids helper on EBSDMap: detects boundaries from integer ID maps (used by Parent IPF, Parent + Boundaries)
+- ReconstructionEngine.run() now sets self.\_map.grains after grain detection (required for GOS map)
+- \_boundary_from_ids helper on EBSDMap: detects boundaries from integer ID maps (used by Parent IPF, Parent + Boundaries)
 
 ## Open Issues
 
@@ -67,7 +67,7 @@
 - StatsPanel: GrainMetrics `to_widget()` form + Measure button for interactive grain size measurement
 - StatsPanel: 2x2 subplot layout — size distribution, fit quality, misorientation histogram (with Mackenzie cubic PDF overlay), variant distribution bar chart
 - StatsPanel: `mackenzie_pdf()` module-level function for cubic Mackenzie distribution
-- ORPanel: `or_changed` Signal(str) emitted on combo change, connected to MainWindow._on_or_changed
+- ORPanel: `or_changed` Signal(str) emitted on combo change, connected to MainWindow.\_on_or_changed
 
 ## Recent Changes
 
@@ -91,3 +91,46 @@
 - Deleted property_selector.py (unused)
 - Removed PropertySelector from ui/widgets/**init**.py exports
 - Fixed Pydantic deprecation: access model_fields from class (type(self).model_fields) not instance
+
+## Comprehensive Enhancement Pass (latest)
+
+### Bug Fixes
+
+- `_refine_or()`: Rewrote from no-op → proper Nelder-Mead optimization using Rodrigues rotation perturbation of base rotation matrix, cost = mean parent misorientation across grain neighbor pairs
+- `variant_graph_cluster()`: Fixed "last variant per grain wins" → majority voting with weighted accumulation across variant nodes per grain
+
+### Quality Fixes (2026-04-23)
+
+- Added missing `QShortcut` import to `ui/main_window.py` (was in QtGui, not QtWidgets)
+- Extracted `_axis_angle_to_rotation()` helper in `core/reconstruction.py` — Rodrigues formula was duplicated in `_refine_or` cost() and post-minimize block
+- Deleted dead `_grain_index()` from `core/graph.py` — superseded by `_grain_id_to_index` dict lookup
+- `QGuiApplication`/`QImage` unused imports in map_viewer.py were already removed in prior pass
+- `_merge_inclusions()`: Replaced O(n²) linear scan with dict lookup (`grain_id_to_idx`)
+
+### New Core Features
+
+- `misorientation_axis_angle_pair()` in math_ops.py: returns both angle and axis (for CSL detection)
+- `_misori_axis_angle_with_symmetry()` njit function backing it
+- `ReconstructionConfig` fields: all now have `Field(description="...")` for tooltip generation
+- EBSDMap: 3 new `@map_property` methods: GROD, Schmid Factor, CSL Boundaries
+- CSL boundary detection: Σ3 (60° <111>) = red, Σ9 (38.9° <110>) = blue, HAGB = black, LAGB = gray
+
+### UI Enhancements
+
+- theme.py: Catppuccin-inspired colors, comprehensive CUSTOM_STYLESHEET for QGroupBox, QTabWidget, QPushButton, QProgressBar, QToolBar, QStatusBar, QDockWidget, QComboBox, QSpinBox
+- main_window.py: Keyboard shortcuts (Ctrl+O/R/S, Escape stop, 1-9 map modes), file info in status bar, QShortcut imports
+- map_viewer.py: Status strip (monospace info bar at bottom), histogram equalization checkbox, linked cursor crosshairs, `select_display_index()`, improved welcome placeholder, right-click context menu
+- stats_panel.py: 3-tab layout (Grain Size / Misorientation / Variants), cumulative distribution checkbox, phase filter dropdown, dark theme matplotlib styling with `_style_ax()` helper
+- pole_figure.py: Contour mode with KDE, dark theme matplotlib, crystal direction annotations
+- reconstruction_panel.py: Step timing via `step_timed` signal, colored progress bar, step counter ("Step 3/13"), Results Summary QGroupBox with parent count + mean fit + timing breakdown
+- or_panel.py: Rich details box showing rotation axis/angle, Miller indices for both phases, variant count
+- phase_panel.py: Volume fraction percentages, QPixmap color swatches, crystal family name
+- param_panel.py: Presets dropdown (Default/Fine/Coarse), tooltips from Field descriptions
+
+### Tests
+anel.py: Volume fraction percentages, QPixmap color swatches, crystal family name
+- param_panel.py: Presets dropdown (Default/Fine/Coarse), tooltips from Field descriptions
+
+### Tests
+
+- All 21 tests pass after changes

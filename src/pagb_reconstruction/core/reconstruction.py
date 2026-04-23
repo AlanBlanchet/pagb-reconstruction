@@ -2,7 +2,7 @@ from typing import Literal
 
 import numpy as np
 from orix.quaternion import Orientation
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 
 from pagb_reconstruction.core.base import Displayable
 from pagb_reconstruction.core.ebsd_map import EBSDMap
@@ -19,22 +19,58 @@ from pagb_reconstruction.utils.math_ops import misorientation_angle_pair
 
 
 class ReconstructionConfig(Displayable):
-    algorithm: Literal["grain_graph", "variant_graph"] = "variant_graph"
-    or_type: str = "KS"
-    optimize_or: bool = True
-
-    threshold_deg: float = 2.5
-    tolerance_deg: float = 2.5
-    inflation_power: float = 1.6
-
-    grain_threshold_deg: float = 5.0
-    min_grain_size: int = 5
-
-    revert_threshold_deg: float = 5.0
-    merge_similar_deg: float = 7.0
-    merge_inclusions_max_size: int = 50
-    n_vote_iterations: int = 3
-    min_cluster_size: int = 15
+    algorithm: Literal["grain_graph", "variant_graph"] = Field(
+        default="variant_graph",
+        description="Reconstruction algorithm: variant_graph (recommended) or grain_graph",
+    )
+    or_type: str = Field(
+        default="KS",
+        description="Orientation relationship preset name (KS, NW, GT, Pitsch, Bain)",
+    )
+    optimize_or: bool = Field(
+        default=True,
+        description="Iteratively refine the OR to minimize mean fit angle",
+    )
+    threshold_deg: float = Field(
+        default=2.5,
+        description="Maximum misorientation (°) for graph edge creation between neighboring grains",
+    )
+    tolerance_deg: float = Field(
+        default=2.5,
+        description="Gaussian tolerance (°) for edge weight decay beyond threshold",
+    )
+    inflation_power: float = Field(
+        default=1.6,
+        description="MCL inflation exponent controlling cluster granularity (higher = more clusters)",
+    )
+    grain_threshold_deg: float = Field(
+        default=5.0,
+        description="Misorientation threshold (°) for child grain boundary detection",
+    )
+    min_grain_size: int = Field(
+        default=5,
+        description="Minimum grain size in pixels; smaller regions are discarded",
+    )
+    revert_threshold_deg: float = Field(
+        default=5.0,
+        description="Maximum fit angle (°) before reverting a grain to unclustered",
+    )
+    merge_similar_deg: float = Field(
+        default=7.0,
+        description="Parent grains within this misorientation (°) are merged",
+    )
+    merge_inclusions_max_size: int = Field(
+        default=50,
+        description="Parent clusters smaller than this (total pixels) are merged into neighbors",
+    )
+    n_vote_iterations: int = Field(
+        default=3,
+        description="Number of neighbor-voting iterations for filling unlabeled grains",
+    )
+    min_cluster_size: int = Field(
+        default=15,
+        description="Minimum parent cluster size; smaller clusters are reassigned",
+    )
 
 
 class ReconstructionResult(Displayable):
@@ -47,6 +83,15 @@ class ReconstructionResult(Displayable):
     packet_ids: np.ndarray
     bain_ids: np.ndarray
     optimized_or: OrientationRelationship | None = None
+
+
+def _axis_angle_to_rotation(ax_vec: np.ndarray) -> np.ndarray:
+    ax_norm = np.linalg.norm(ax_vec)
+    if ax_norm < 1e-10:
+        return np.eye(3)
+    ax = ax_vec / ax_norm
+    K = np.array([[0, -ax[2], ax[1]], [ax[2], 0, -ax[0]], [-ax[1], ax[0], 0]])
+    return np.eye(3) + np.sin(ax_norm) * K + (1 - np.cos(ax_norm)) * (K @ K)
 
 
 class ReconstructionEngine:
@@ -214,45 +259,74 @@ class ReconstructionEngine:
         from scipy.optimize import minimize
 
         sym_quats = self._map._primary_symmetry_quats()
-        theoretical = self._or.theoretical_misorientations()
-        if len(theoretical) == 0 or len(self._grains) < 2:
+        if len(self._grains) < 2:
             return self._or
 
+        grain_quats = np.array([g.mean_quaternion for g in self._grains])
         grain_id_map = {g.id: idx for idx, g in enumerate(self._grains)}
-        neighbor_misoris = []
+        pairs = []
         for grain in self._grains:
             for nid in grain.neighbor_ids:
                 j = grain_id_map.get(nid)
-                if j is not None:
-                    angle = misorientation_angle_pair(
-                        grain.mean_quaternion, self._grains[j].mean_quaternion, sym_quats
-                    )
-                    neighbor_misoris.append(angle)
+                if j is not None and j > grain_id_map[grain.id]:
+                    pairs.append((grain_id_map[grain.id], j))
 
-        if not neighbor_misoris:
+        if not pairs:
             return self._or
 
-        measured = np.array(neighbor_misoris)
+        base_R = self._or.rotation_matrix.copy()
 
         def cost(params):
-            axis = params[:3]
-            axis_norm = np.linalg.norm(axis)
-            if axis_norm < 1e-10:
-                return 1e6
-            axis = axis / axis_norm
-            angle_rad = params[3]
-            half = angle_rad / 2
-            dq = np.array([np.cos(half), *(axis * np.sin(half))])
+            delta_R = _axis_angle_to_rotation(params[:3])
+            R_test = delta_R @ base_R
+            or_ori = Orientation.from_matrix(R_test.reshape(1, 3, 3))
+            parent_sym_oris = Orientation(self._or.parent_phase.symmetry.data)
 
-            adjusted = np.abs(theoretical + angle_rad * 180 / np.pi)
-            deviations = np.array([np.min(np.abs(adjusted - m)) for m in measured])
-            return float(np.mean(deviations))
+            test_variants = []
+            seen: set[tuple[float, ...]] = set()
+            for ps in parent_sym_oris:
+                v = ps * or_ori
+                q = v.data.flatten()
+                if q[0] < 0:
+                    q = -q
+                key = tuple(np.round(q, 3))
+                if key not in seen:
+                    seen.add(key)
+                    test_variants.append(q)
+            test_variants_arr = np.array(test_variants)
 
-        result = minimize(cost, x0=[0, 0, 1, 0], method="Nelder-Mead",
-                          options={"maxiter": 200, "xatol": 1e-4})
-        if result.fun < cost([0, 0, 1, 0]):
+            total_fit = 0.0
+            for i, j in pairs:
+                qi, qj = grain_quats[i], grain_quats[j]
+                child_ori_i = Orientation(qi.reshape(1, 4))
+                child_ori_j = Orientation(qj.reshape(1, 4))
+
+                best_angle = 999.0
+                for v in test_variants_arr:
+                    var_ori = Orientation(v.reshape(1, 4))
+                    parent_i = child_ori_i * (~var_ori)
+                    parent_j = child_ori_j * (~var_ori)
+                    pi_q = parent_i.data.flatten()
+                    pj_q = parent_j.data.flatten()
+                    angle = misorientation_angle_pair(pi_q, pj_q, sym_quats)
+                    if angle < best_angle:
+                        best_angle = angle
+                total_fit += best_angle
+            return total_fit / len(pairs)
+
+        initial_cost = cost(np.zeros(3))
+        result = minimize(cost, x0=np.zeros(3), method="Nelder-Mead",
+                          options={"maxiter": 300, "xatol": 1e-4, "fatol": 1e-4})
+
+        if result.fun >= initial_cost:
             return self._or
-        return self._or
+
+        delta_R = _axis_angle_to_rotation(result.x)
+        refined_R = delta_R @ base_R
+
+        refined = self._or.model_copy()
+        refined._rotation_matrix = refined_R
+        return refined
 
     def _compute_parent_orientations(self) -> np.ndarray:
         unique_labels = np.unique(self._parent_labels)
@@ -313,6 +387,7 @@ class ReconstructionEngine:
     def _merge_inclusions(self):
         if self._config.merge_inclusions_max_size <= 0:
             return
+        grain_id_to_idx = {g.id: idx for idx, g in enumerate(self._grains)}
         unique_labels = np.unique(self._parent_labels)
         for label in unique_labels:
             indices = np.where(self._parent_labels == label)[0]
@@ -324,9 +399,9 @@ class ReconstructionEngine:
                 for i in indices:
                     if i < len(self._grains):
                         for nid in self._grains[i].neighbor_ids:
-                            for j, g in enumerate(self._grains):
-                                if g.id == nid and self._parent_labels[j] != label:
-                                    neighbor_labels.add(self._parent_labels[j])
+                            j = grain_id_to_idx.get(nid)
+                            if j is not None and self._parent_labels[j] != label:
+                                neighbor_labels.add(self._parent_labels[j])
                 if neighbor_labels:
                     self._parent_labels[indices] = next(iter(neighbor_labels))
 

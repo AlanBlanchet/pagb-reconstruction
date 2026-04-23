@@ -44,13 +44,6 @@ def _grain_id_to_index(grains: list[Grain]) -> dict[int, int]:
     return {g.id: idx for idx, g in enumerate(grains)}
 
 
-def _grain_index(grains: list[Grain], grain_id: int) -> int | None:
-    for idx, g in enumerate(grains):
-        if g.id == grain_id:
-            return idx
-    return None
-
-
 def _compute_edge_weight(
     measured_angle: float,
     theoretical_angles: np.ndarray,
@@ -222,10 +215,18 @@ def variant_graph_cluster(
     cluster_labels = np.zeros(n_grains, dtype=np.int32)
     attractors = np.where(np.diag(M) > 0.01)[0]
     if len(attractors) > 0:
+        grain_votes: dict[int, dict[int, float]] = {}
         for i in range(dim):
             grain_idx = i // n_variants
             best = attractors[np.argmax(M[attractors, i])]
-            cluster_labels[grain_idx] = best // n_variants
+            cluster_id = best // n_variants
+            weight = M[best, i]
+            if grain_idx not in grain_votes:
+                grain_votes[grain_idx] = {}
+            votes = grain_votes[grain_idx]
+            votes[cluster_id] = votes.get(cluster_id, 0.0) + weight
+        for grain_idx, votes in grain_votes.items():
+            cluster_labels[grain_idx] = max(votes, key=votes.__getitem__)
     else:
         cluster_labels = np.arange(n_grains, dtype=np.int32)
 

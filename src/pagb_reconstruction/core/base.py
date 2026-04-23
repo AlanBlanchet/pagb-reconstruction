@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict
@@ -70,18 +70,45 @@ class CrystallographicEntity(Displayable):
 
 _MAP_PROPERTY_ATTR = "__map_property__"
 
+MapDtype = Literal["scalar", "rgb", "discrete"]
+
 
 class _MapPropertyMeta:
-    __slots__ = ("name", "requires_result")
+    __slots__ = ("name", "requires_result", "dtype", "colormap", "value_range", "unit", "category")
 
-    def __init__(self, name: str, requires_result: bool):
+    def __init__(
+        self,
+        name: str,
+        requires_result: bool,
+        dtype: MapDtype = "scalar",
+        colormap: str | None = None,
+        value_range: tuple[float, float] | None = None,
+        unit: str | None = None,
+        category: str | None = None,
+    ):
         self.name = name
         self.requires_result = requires_result
+        self.dtype = dtype
+        self.colormap = colormap
+        self.value_range = value_range
+        self.unit = unit
+        self.category = category
 
 
-def map_property(name: str, requires_result: bool = False) -> Callable:
+def map_property(
+    name: str,
+    requires_result: bool = False,
+    dtype: MapDtype = "scalar",
+    colormap: str | None = None,
+    value_range: tuple[float, float] | None = None,
+    unit: str | None = None,
+    category: str | None = None,
+) -> Callable:
     def decorator(fn: Callable) -> Callable:
-        setattr(fn, _MAP_PROPERTY_ATTR, _MapPropertyMeta(name, requires_result))
+        setattr(fn, _MAP_PROPERTY_ATTR, _MapPropertyMeta(
+            name, requires_result, dtype=dtype, colormap=colormap,
+            value_range=value_range, unit=unit, category=category,
+        ))
         return fn
 
     return decorator
@@ -91,22 +118,18 @@ class SpatialMap(Displayable):
     @classmethod
     def registered_map_properties(cls) -> list[_MapPropertyMeta]:
         props: list[_MapPropertyMeta] = []
-        for attr_name in dir(cls):
-            attr = getattr(cls, attr_name, None)
-            if attr is None:
-                continue
-            meta = getattr(attr, _MAP_PROPERTY_ATTR, None)
-            if meta is not None:
-                props.append(meta)
+        for klass in cls.__mro__:
+            for attr_name, attr in vars(klass).items():
+                meta = getattr(attr, _MAP_PROPERTY_ATTR, None)
+                if meta is not None:
+                    props.append(meta)
         return props
 
     def compute_map_property(self, name: str, **kwargs: Any) -> np.ndarray:
-        for attr_name in dir(self):
-            attr = getattr(type(self), attr_name, None)
-            if attr is None:
-                continue
-            meta = getattr(attr, _MAP_PROPERTY_ATTR, None)
-            if meta is not None and meta.name == name:
-                return getattr(self, attr_name)(**kwargs)
+        for klass in type(self).__mro__:
+            for attr_name, attr in vars(klass).items():
+                meta = getattr(attr, _MAP_PROPERTY_ATTR, None)
+                if meta is not None and meta.name == name:
+                    return getattr(self, attr_name)(**kwargs)
         msg = f"Unknown map property: {name}"
         raise KeyError(msg)
