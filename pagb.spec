@@ -1,13 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_submodules, copy_metadata
+from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
 
 datas = copy_metadata('pagb-reconstruction')
-
-_COLLECT_PACKAGES = [
-    "orix", "diffpy", "numba", "scipy", "sklearn",
-    "h5py", "pydantic", "matplotlib", "pyqtgraph",
-]
-
+binaries = []
 hidden = [
     "pagb_reconstruction",
     "networkx", "packaging",
@@ -15,13 +10,19 @@ hidden = [
     "matplotlib.backends.backend_qtagg",
     "PySide6", "qdarktheme", "superqt",
 ]
-for pkg in _COLLECT_PACKAGES:
+
+# orix uses lazy_loader with .pyi stubs — need collect_all to get data files
+for pkg in ["orix", "diffpy"]:
+    d, b, h = collect_all(pkg)
+    datas += d; binaries += b; hidden += h
+
+for pkg in ["numba", "scipy", "sklearn", "h5py", "pydantic", "matplotlib", "pyqtgraph"]:
     hidden += collect_submodules(pkg)
 
 a = Analysis(
     ["src/pagb_reconstruction/app.py"],
     pathex=[],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hidden,
     hookspath=[],

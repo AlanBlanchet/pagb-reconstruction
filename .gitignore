@@ -13,3 +13,4 @@ wheels/
 _version.py
 *.AppImage
 *.spec.bak
+dist-test/
