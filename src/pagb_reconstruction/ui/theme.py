@@ -140,16 +140,19 @@ QSpinBox:hover, QDoubleSpinBox:hover {
 
 
 def apply_theme(app: QApplication):
-    qdarktheme.setup_theme(
-        "dark",
-        corner_shape="sharp",
-        custom_colors={
-            "primary": ACCENT,
-            "background": DARK_BG,
-            "foreground": DARK_FG,
-        },
-        additional_qss=CUSTOM_STYLESHEET,
-    )
+    try:
+        qdarktheme.setup_theme(
+            "dark",
+            corner_shape="sharp",
+            custom_colors={
+                "primary": ACCENT,
+                "background": DARK_BG,
+                "foreground": DARK_FG,
+            },
+            additional_qss=CUSTOM_STYLESHEET,
+        )
+    except Exception:
+        app.setStyleSheet(CUSTOM_STYLESHEET)
     pg.setConfigOptions(
         background=DARK_BG,
         foreground=DARK_FG,
