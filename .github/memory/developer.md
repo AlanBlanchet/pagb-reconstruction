@@ -245,6 +245,34 @@ anel.py: Volume fraction percentages, QPixmap color swatches, crystal family nam
 
 ### Known Remaining Issues
 
-- UI hover/click (`_on_pixel_hover`, `_on_pixel_click`) uses `flat = y * cols + x` which is wrong for sparse maps — needs pixel lookup table
-- Sparse maps: grain detection, KAM, misorientation, grain boundary, CSL boundary maps not yet supported
 - orix auto-renames phases on ANG load ("Ferrite" → "Fe") — cosmetic issue
+
+## PixelTopology Refactor (2026-04-24)
+
+### What changed
+- Added `PixelTopology` Pydantic model in `core/ebsd_map.py`: computes neighbor pairs via cKDTree, works for any grid geometry (square, hex, sparse)
+- NN radius: uses median of actual nearest-neighbor distances × 1.01 (not `max(dx,dy)` — hex grids have NN dist = 2×dx which is larger than dy)
+- `EBSDMap.topology` lazy property replaces `_grid_indices()` and `_grid_cache`
+- `_to_grid()` uses `topology.pixel_to_rc` instead of separate `_grid_indices()` method
+- `pixel_index_at(row, col)` → reverse lookup from grid position to pixel index
+- Added `MisorientationOps.pairs()` static method + `_misori_pairs` numba kernel in math_ops.py
+- Rewrote `kam_map`, `misorientation_map`, `grain_boundary_map`, `csl_boundary_map` using topology pairs — no more `is_sparse` guards returning zeros
+- Rewrote `gos_map`, `grod_map`, `grain_id_map` to work on flat pixel arrays + `_to_grid()` instead of `g.row_col`
+- Rewrote `detect_grains()` in grain.py: accepts `topology` param, uses scipy sparse connected_components instead of ndimage.label
+- Updated `_compute_neighbors()` to use pair array instead of grid iteration
+- Updated `reconstruction.py._detect_grains()` to pass `topology`
+- Updated `main_window.py` hover/click to use `pixel_index_at()` — works for sparse maps now
+- Removed `_grid_cache`, `_grid_indices()`, `NotImplementedError` for sparse grain detection
+
+### Files changed
+- `src/pagb_reconstruction/core/ebsd_map.py` — PixelTopology class, EBSDMap rewrite
+- `src/pagb_reconstruction/core/grain.py` — detect_grains topology-based, _compute_neighbors pair-based
+- `src/pagb_reconstruction/utils/math_ops.py` — _misori_pairs kernel, MisorientationOps.pairs()
+- `src/pagb_reconstruction/core/reconstruction.py` — _detect_grains passes topology
+- `src/pagb_reconstruction/core/__init__.py` — exports PixelTopology
+- `src/pagb_reconstruction/ui/main_window.py` — hover/click use pixel_index_at
+
+### Lessons
+- Hex grid: dx=0.1, dy=0.17321 (dx×√3) but actual NN distance = 2×dx = 0.2 — radius must come from actual data, not step sizes
+- cKDTree.query_pairs with `output_type='ndarray'` gives (E, 2) directly — no set conversion needed
+- scipy connected_components on sparse matrix is cleaner than ndimage.label for non-rectangular domains

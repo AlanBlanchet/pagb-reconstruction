@@ -1,5 +1,26 @@
 # Generalizer Memory
 
+## 2026-04-24: Fifth pass — _pair_angles helper extraction
+
+### Changes made
+
+1. **`_pair_angles()` helper on EBSDMap** — Extracted the 3-line block (`_primary_symmetry_quats` → `topology` → `MisorientationOps.pairs`) repeated identically in `kam_map`, `misorientation_map`, `grain_boundary_map` into single `_pair_angles()` returning `(topo, angles)`.
+
+### Occurrence counts after
+
+- `MisorientationOps.pairs(` in source: 2 (1 in ebsd_map `_pair_angles`, 1 in grain.py `detect_grains`) — was 4
+- `_pair_angles()` call sites: 3 (kam, misorientation, grain_boundary) — exactly max-3
+- `_to_grid` in ebsd_map.py: still ~18 (utility method, acceptable — topology handles spatial lookup, `_to_grid` handles sparse/dense reshaping — complementary)
+- `self._primary_symmetry_quats()` in ebsd_map.py: 5 (was 7 — 2 calls absorbed into `_pair_angles`) — accessor pattern, acceptable
+
+### Files changed
+
+- `core/ebsd_map.py`: +6 lines (helper), −9 lines (3×3 duplicated blocks) = **−3 net lines**
+
+### Analysis: not extracted
+
+- `_to_grid`: still needed — topology provides `pixel_to_rc` for scatter, `_to_grid` handles both sparse reshape and dense reshape. Complementary, not redundant.
+
 ## 2026-04-24: Fourth pass — requires_result decorator auto-guard
 
 ### Changes made

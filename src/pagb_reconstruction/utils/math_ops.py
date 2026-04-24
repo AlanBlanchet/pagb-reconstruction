@@ -80,36 +80,6 @@ def _misori_angle_simple(
     return min_angle
 
 
-@njit(cache=True, parallel=True)
-def _misori_horizontal(
-    quats: np.ndarray, rows: int, cols: int, sym_quats: np.ndarray
-) -> np.ndarray:
-    result = np.empty(rows * (cols - 1), dtype=np.float64)
-    for r in prange(rows):
-        for c in range(cols - 1):
-            idx1 = r * cols + c
-            idx2 = r * cols + c + 1
-            result[r * (cols - 1) + c] = _misori_angle_simple(
-                quats[idx1], quats[idx2], sym_quats
-            )
-    return result
-
-
-@njit(cache=True, parallel=True)
-def _misori_vertical(
-    quats: np.ndarray, rows: int, cols: int, sym_quats: np.ndarray
-) -> np.ndarray:
-    result = np.empty((rows - 1) * cols, dtype=np.float64)
-    for r in prange(rows - 1):
-        for c in range(cols):
-            idx1 = r * cols + c
-            idx2 = (r + 1) * cols + c
-            result[r * cols + c] = _misori_angle_simple(
-                quats[idx1], quats[idx2], sym_quats
-            )
-    return result
-
-
 @njit(cache=True)
 def cumulative_gaussian(x: float, threshold: float, tolerance: float) -> float:
     if tolerance <= 0:
@@ -128,6 +98,19 @@ def _erf_approx(x: float) -> float:
         + 0.254829592
     ) * t * np.exp(-x * x)
     return sign * y
+
+
+@njit(cache=True, parallel=True)
+def _misori_pairs(
+    quats: np.ndarray, pairs: np.ndarray, sym_quats: np.ndarray
+) -> np.ndarray:
+    n = pairs.shape[0]
+    result = np.empty(n, dtype=np.float64)
+    for i in prange(n):
+        result[i] = _misori_angle_simple(
+            quats[pairs[i, 0]], quats[pairs[i, 1]], sym_quats
+        )
+    return result
 
 
 @njit(cache=True)
@@ -150,7 +133,9 @@ def _misori_axis_angle_with_symmetry(
             min_angle = angle
             norm = np.sqrt(equiv[1] ** 2 + equiv[2] ** 2 + equiv[3] ** 2)
             if norm > 1e-10:
-                best_axis = np.array([equiv[1] / norm, equiv[2] / norm, equiv[3] / norm])
+                best_axis = np.array(
+                    [equiv[1] / norm, equiv[2] / norm, equiv[3] / norm]
+                )
             else:
                 best_axis = np.array([1.0, 0.0, 0.0])
 
@@ -167,14 +152,20 @@ class QuaternionOps:
 class MisorientationOps:
     _angle_with_symmetry = staticmethod(_misori_angle_with_symmetry)
     _angle_simple = staticmethod(_misori_angle_simple)
-    _horizontal = staticmethod(_misori_horizontal)
-    _vertical = staticmethod(_misori_vertical)
     _axis_angle_with_symmetry = staticmethod(_misori_axis_angle_with_symmetry)
 
     @staticmethod
-    def pair(
-        q1: np.ndarray, q2: np.ndarray, symmetry_quats: np.ndarray
-    ) -> float:
+    def pairs(
+        quats: np.ndarray, pair_indices: np.ndarray, symmetry_quats: np.ndarray
+    ) -> np.ndarray:
+        return _misori_pairs(
+            quats.astype(np.float64),
+            pair_indices.astype(np.int32),
+            symmetry_quats.astype(np.float64),
+        )
+
+    @staticmethod
+    def pair(q1: np.ndarray, q2: np.ndarray, symmetry_quats: np.ndarray) -> float:
         return float(
             _misori_angle_simple(
                 q1.astype(np.float64),
@@ -182,19 +173,6 @@ class MisorientationOps:
                 symmetry_quats.astype(np.float64),
             )
         )
-
-    @staticmethod
-    def neighbors(
-        quaternions: np.ndarray,
-        shape: tuple[int, int],
-        symmetry_quats: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        rows, cols = shape
-        quats = quaternions.astype(np.float64)
-        sym = symmetry_quats.astype(np.float64)
-        misori_h = _misori_horizontal(quats, rows, cols, sym)
-        misori_v = _misori_vertical(quats, rows, cols, sym)
-        return misori_h, misori_v
 
     @staticmethod
     def axis_angle_pair(

@@ -9,7 +9,7 @@ from pagb_reconstruction.core.crystal import CrystalFamily, LatticeParams
 from pagb_reconstruction.core.phase import PhaseConfig
 from pagb_reconstruction.core.orientation import OrientationData
 from pagb_reconstruction.core.grain import Grain, detect_grains
-from pagb_reconstruction.core.ebsd_map import EBSDMap
+from pagb_reconstruction.core.ebsd_map import EBSDMap, PixelTopology
 from pagb_reconstruction.core.orientation_relationship import OrientationRelationship
 from pagb_reconstruction.core.reconstruction import (
     ReconstructionConfig,
@@ -37,6 +37,7 @@ __all__ = [
     "Grain",
     "detect_grains",
     "EBSDMap",
+    "PixelTopology",
     "OrientationRelationship",
     "ReconstructionConfig",
     "ReconstructionEngine",

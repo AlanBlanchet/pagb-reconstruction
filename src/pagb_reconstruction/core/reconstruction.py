@@ -15,7 +15,11 @@ from pagb_reconstruction.core.graph import (
     vote_fill,
 )
 from pagb_reconstruction.core.orientation_relationship import OrientationRelationship
-from pagb_reconstruction.utils.array_ops import align_hemisphere, grain_index_map, remap_labels
+from pagb_reconstruction.utils.array_ops import (
+    align_hemisphere,
+    grain_index_map,
+    remap_labels,
+)
 from pagb_reconstruction.utils.math_ops import MisorientationOps
 
 
@@ -75,7 +79,6 @@ class ReconstructionConfig(Displayable):
 
 
 class ReconstructionResult(Displayable):
-
     parent_orientations: np.ndarray
     parent_grain_ids: np.ndarray
     fit_angles: np.ndarray
@@ -137,7 +140,10 @@ class ReconstructionEngine:
         _progress("Clustering variants", 0.5)
         n_variants = self._or.n_variants
         parent_oris, best_variants, self._parent_labels = variant_graph_cluster(
-            adj, all_candidates, len(self._grains), n_variants,
+            adj,
+            all_candidates,
+            len(self._grains),
+            n_variants,
             inflation=self._config.inflation_power,
         )
         self._parent_quats = self._aggregate_parent_quats(parent_oris)
@@ -213,7 +219,7 @@ class ReconstructionEngine:
         return detect_grains(
             quaternions=self._map.quaternions,
             phase_ids=self._map.phase_ids,
-            shape=self._map.shape,
+            topology=self._map.topology,
             symmetry_quats=sym_quats,
             threshold_deg=self._config.grain_threshold_deg,
             min_size=self._config.min_grain_size,
@@ -247,7 +253,9 @@ class ReconstructionEngine:
             qs = align_hemisphere(qs, qs[0])
             mean_q = qs.mean(axis=0)
             norm = np.linalg.norm(mean_q)
-            parent_quats[label_map[label]] = mean_q / norm if norm > 1e-10 else np.array([1, 0, 0, 0])
+            parent_quats[label_map[label]] = (
+                mean_q / norm if norm > 1e-10 else np.array([1, 0, 0, 0])
+            )
 
         self._parent_labels = remap_labels(self._parent_labels)
         return parent_quats
@@ -312,8 +320,12 @@ class ReconstructionEngine:
             return total_fit / len(pairs)
 
         initial_cost = cost(np.zeros(3))
-        result = minimize(cost, x0=np.zeros(3), method="Nelder-Mead",
-                          options={"maxiter": 300, "xatol": 1e-4, "fatol": 1e-4})
+        result = minimize(
+            cost,
+            x0=np.zeros(3),
+            method="Nelder-Mead",
+            options={"maxiter": 300, "xatol": 1e-4, "fatol": 1e-4},
+        )
 
         if result.fun >= initial_cost:
             return self._or

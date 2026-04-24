@@ -102,3 +102,36 @@
 - `phase_colormap` uses enumerate index instead of actual phase ID (colormap.py)
 - `_compute_neighbors` is O(rows*cols) pixel loop — should use grain-level adjacency
 - `_merge_inclusions` O(n²) — uses linear scan for neighbor ID lookup
+
+## 2026-04-24 — PixelTopology review
+
+### Fixed (Critical)
+
+1. **`Grain.row_col` wrong for sparse grids** — Used `pixel_indices // map_width` which only works when data index == grid flat index (dense grids). For sparse grids, pixel_indices are data-array offsets, not grid positions. Replaced `map_width` field with `pixel_rc: np.ndarray` (per-grain (N,2) row-col coordinates from topology). `detect_grains` now passes `topo.pixel_to_rc[pixels]`.
+
+### Fixed (Major — dead code)
+
+2. **`_misori_horizontal`, `_misori_vertical`** — Grid-based pair kernels superseded by `_misori_pairs` + topology. Removed functions and `MisorientationOps._horizontal`, `_vertical`, `neighbors` class attrs/method.
+
+### Fixed (Minor)
+
+3. **`_classify_csl` unreachable `return None`** — All angle ranges already handled. Removed dead branch + `| None` return type + `if color is not None` guard in caller.
+
+### Verified correct
+
+- `_misori_pairs` prange: each iteration writes unique `result[i]`, no race conditions
+- `np.add.at`/`np.maximum.at`/`np.bitwise_or.at` — correct unbuffered accumulation for pair-based topology
+- Edge cases: empty pairs, single pixel, all same phase all handled correctly
+- `_compute_neighbors` correctly iterates ALL topology pairs to detect inter-grain adjacency
+- `PixelTopology.from_crystal_map` degree computation correct
+
+### Open items (still open from previous reviews)
+
+- `_DARK_BG`, `_DARK_FG`, `_GRID_COLOR` duplicated in stats_panel.py and pole_figure.py
+- Stop button still not connected to cancellation logic
+- `highlight_region` still a no-op stub
+- `_family_from_point_group` always returns CUBIC (ang_io.py)
+- `phase_colormap` uses enumerate index instead of actual phase ID (colormap.py)
+- `_compute_neighbors` O(n_pairs) Python loop — correct but slow for large datasets
+- `_merge_inclusions` O(n²) — uses linear scan for neighbor ID lookup
+- `_refine_or` creates Orientation objects in tight loop — could be slow

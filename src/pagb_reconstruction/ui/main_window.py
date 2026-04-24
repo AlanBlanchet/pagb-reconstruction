@@ -382,12 +382,14 @@ class MainWindow(QMainWindow):
         self._log(f"OR changed to: {or_name}")
 
     def _on_pixel_hover(self, x: int, y: int):
-        if self._ebsd_map is None or self._ebsd_map.is_sparse:
+        if self._ebsd_map is None:
             return
         rows, cols = self._ebsd_map.shape
         if not (0 <= y < rows and 0 <= x < cols):
             return
-        flat = y * cols + x
+        flat = self._ebsd_map.pixel_index_at(y, x)
+        if flat < 0:
+            return
         euler = self._ebsd_map.crystal_map.rotations.to_euler(degrees=True)
         phi1, Phi, phi2 = euler[flat]
         pid = int(self._ebsd_map.phase_ids[flat])
@@ -403,12 +405,14 @@ class MainWindow(QMainWindow):
         )
 
     def _on_pixel_click(self, x: int, y: int):
-        if self._ebsd_map is None or self._ebsd_map.is_sparse:
+        if self._ebsd_map is None:
             return
         rows, cols = self._ebsd_map.shape
         if not (0 <= y < rows and 0 <= x < cols):
             return
-        flat = y * cols + x
+        flat = self._ebsd_map.pixel_index_at(y, x)
+        if flat < 0:
+            return
         euler = self._ebsd_map.crystal_map.rotations.to_euler(degrees=True)
         phi1, Phi, phi2 = euler[flat]
         pid = int(self._ebsd_map.phase_ids[flat])
