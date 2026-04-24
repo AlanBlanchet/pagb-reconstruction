@@ -243,14 +243,12 @@ class MainWindow(QMainWindow):
         open_action = QAction(
             style.standardIcon(style.StandardPixmap.SP_DialogOpenButton), "Open", self
         )
-        open_action.setShortcut(QKeySequence("Ctrl+O"))
         open_action.triggered.connect(self._open_file)
         toolbar.addAction(open_action)
 
         save_action = QAction(
             style.standardIcon(style.StandardPixmap.SP_DialogSaveButton), "Save", self
         )
-        save_action.setShortcut(QKeySequence("Ctrl+S"))
         save_action.triggered.connect(self._save_file)
         toolbar.addAction(save_action)
 

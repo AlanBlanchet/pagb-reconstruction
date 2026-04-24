@@ -51,12 +51,21 @@ class UpdateBar(QWidget):
         self._url = ""
         self._download_url = ""
 
+    def _safe_disconnect(self):
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            try:
+                self._download_btn.clicked.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+
     def show_update(self, version: str, url: str, download_url: str = ""):
         self._label.setText(f"Update available: v{version}")
         self._url = url
         self._download_url = download_url
-        if self._download_btn.receivers(self._download_btn.clicked) > 0:
-            self._download_btn.clicked.disconnect()
+        self._safe_disconnect()
         if download_url:
             self._download_btn.setText("Update")
             self._download_btn.clicked.connect(self._start_download)
@@ -89,8 +98,7 @@ class UpdateBar(QWidget):
         self._download_btn.setEnabled(True)
         self._download_btn.setText("Retry")
         self._progress.setVisible(False)
-        if self._download_btn.receivers(self._download_btn.clicked) > 0:
-            self._download_btn.clicked.disconnect()
+        self._safe_disconnect()
         self._download_btn.clicked.connect(self._start_download)
 
     def _on_dismiss(self):

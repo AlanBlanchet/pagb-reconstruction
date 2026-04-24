@@ -32,7 +32,8 @@ class UpdateChecker(QThread):
             from pagb_reconstruction import __version__
             from packaging.version import Version
 
-            if Version(remote) > Version(__version__):
+            local = Version(__version__).base_version
+            if Version(remote) > Version(local):
                 download_url = _find_asset_url(data.get("assets", []))
                 info = UpdateInfo(
                     version=remote,
