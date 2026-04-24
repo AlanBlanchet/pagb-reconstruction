@@ -142,17 +142,118 @@ def _misori_axis_angle_with_symmetry(
     return min_angle, best_axis
 
 
+def _rotation_matrix_to_quat(R: np.ndarray) -> np.ndarray:
+    trace = R[0, 0] + R[1, 1] + R[2, 2]
+    if trace > 0:
+        s = 2.0 * np.sqrt(1.0 + trace)
+        w, x = 0.25 * s, (R[2, 1] - R[1, 2]) / s
+        y, z = (R[0, 2] - R[2, 0]) / s, (R[1, 0] - R[0, 1]) / s
+    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
+        s = 2.0 * np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2])
+        w, x = (R[2, 1] - R[1, 2]) / s, 0.25 * s
+        y, z = (R[0, 1] + R[1, 0]) / s, (R[0, 2] + R[2, 0]) / s
+    elif R[1, 1] > R[2, 2]:
+        s = 2.0 * np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2])
+        w, x = (R[0, 2] - R[2, 0]) / s, (R[0, 1] + R[1, 0]) / s
+        y, z = 0.25 * s, (R[1, 2] + R[2, 1]) / s
+    else:
+        s = 2.0 * np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1])
+        w, x = (R[1, 0] - R[0, 1]) / s, (R[0, 2] + R[2, 0]) / s
+        y, z = (R[1, 2] + R[2, 1]) / s, 0.25 * s
+    q = np.array([w, x, y, z])
+    if q[0] < 0:
+        q = -q
+    return q / np.linalg.norm(q)
+
+
+@njit(cache=True, parallel=True)
+def _refine_or_cost(
+    pair_qi: np.ndarray,
+    pair_qj: np.ndarray,
+    variants: np.ndarray,
+    sym_quats: np.ndarray,
+) -> float:
+    n_pairs = pair_qi.shape[0]
+    n_variants = variants.shape[0]
+    costs = np.empty(n_pairs, dtype=np.float64)
+    for p in prange(n_pairs):
+        qi = pair_qi[p]
+        qj = pair_qj[p]
+        best = 999.0
+        for vi in range(n_variants):
+            vi_conj = np.array(
+                [variants[vi, 0], -variants[vi, 1], -variants[vi, 2], -variants[vi, 3]]
+            )
+            pi = quaternion_multiply(qi, vi_conj)
+            for vj in range(n_variants):
+                vj_conj = np.array(
+                    [
+                        variants[vj, 0],
+                        -variants[vj, 1],
+                        -variants[vj, 2],
+                        -variants[vj, 3],
+                    ]
+                )
+                pj = quaternion_multiply(qj, vj_conj)
+                angle = _misori_angle_simple(pi, pj, sym_quats)
+                if angle < best:
+                    best = angle
+        costs[p] = best
+    return costs.sum() / n_pairs
+
+
+@njit(cache=True, parallel=True)
+def _build_variant_edges(
+    all_candidates: np.ndarray,
+    edge_pairs: np.ndarray,
+    parent_sym_quats: np.ndarray,
+    n_variants: int,
+    threshold: float,
+    tolerance: float,
+    min_weight: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    n_edges = edge_pairs.shape[0]
+    per_edge = n_variants * n_variants
+    total_slots = n_edges * per_edge
+
+    rows = np.full(total_slots, -1, dtype=np.int64)
+    cols = np.full(total_slots, -1, dtype=np.int64)
+    weights = np.zeros(total_slots, dtype=np.float64)
+
+    for e in prange(n_edges):
+        i = edge_pairs[e, 0]
+        j = edge_pairs[e, 1]
+        base = e * per_edge
+        count = 0
+        for va in range(n_variants):
+            for vb in range(n_variants):
+                angle = _misori_angle_simple(
+                    all_candidates[i, va], all_candidates[j, vb], parent_sym_quats
+                )
+                w = cumulative_gaussian(angle, threshold, tolerance)
+                if w > min_weight:
+                    rows[base + count] = i * n_variants + va
+                    cols[base + count] = j * n_variants + vb
+                    weights[base + count] = w
+                    count += 1
+
+    return rows, cols, weights
+
+
 class QuaternionOps:
     multiply = staticmethod(quaternion_multiply)
     conjugate = staticmethod(quaternion_conjugate)
     angle = staticmethod(quaternion_angle)
     multiply_batch = staticmethod(quaternion_multiply_batch)
+    from_rotation_matrix = staticmethod(_rotation_matrix_to_quat)
 
 
 class MisorientationOps:
     _angle_with_symmetry = staticmethod(_misori_angle_with_symmetry)
     _angle_simple = staticmethod(_misori_angle_simple)
     _axis_angle_with_symmetry = staticmethod(_misori_axis_angle_with_symmetry)
+    refine_or_cost = staticmethod(_refine_or_cost)
+    build_variant_edges = staticmethod(_build_variant_edges)
 
     @staticmethod
     def pairs(

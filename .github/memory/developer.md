@@ -250,6 +250,7 @@ anel.py: Volume fraction percentages, QPixmap color swatches, crystal family nam
 ## PixelTopology Refactor (2026-04-24)
 
 ### What changed
+
 - Added `PixelTopology` Pydantic model in `core/ebsd_map.py`: computes neighbor pairs via cKDTree, works for any grid geometry (square, hex, sparse)
 - NN radius: uses median of actual nearest-neighbor distances × 1.01 (not `max(dx,dy)` — hex grids have NN dist = 2×dx which is larger than dy)
 - `EBSDMap.topology` lazy property replaces `_grid_indices()` and `_grid_cache`
@@ -265,14 +266,41 @@ anel.py: Volume fraction percentages, QPixmap color swatches, crystal family nam
 - Removed `_grid_cache`, `_grid_indices()`, `NotImplementedError` for sparse grain detection
 
 ### Files changed
+
 - `src/pagb_reconstruction/core/ebsd_map.py` — PixelTopology class, EBSDMap rewrite
-- `src/pagb_reconstruction/core/grain.py` — detect_grains topology-based, _compute_neighbors pair-based
-- `src/pagb_reconstruction/utils/math_ops.py` — _misori_pairs kernel, MisorientationOps.pairs()
-- `src/pagb_reconstruction/core/reconstruction.py` — _detect_grains passes topology
+- `src/pagb_reconstruction/core/grain.py` — detect_grains topology-based, \_compute_neighbors pair-based
+- `src/pagb_reconstruction/utils/math_ops.py` — \_misori_pairs kernel, MisorientationOps.pairs()
+- `src/pagb_reconstruction/core/reconstruction.py` — \_detect_grains passes topology
 - `src/pagb_reconstruction/core/__init__.py` — exports PixelTopology
 - `src/pagb_reconstruction/ui/main_window.py` — hover/click use pixel_index_at
 
 ### Lessons
+
 - Hex grid: dx=0.1, dy=0.17321 (dx×√3) but actual NN distance = 2×dx = 0.2 — radius must come from actual data, not step sizes
 - cKDTree.query_pairs with `output_type='ndarray'` gives (E, 2) directly — no set conversion needed
 - scipy connected_components on sparse matrix is cleaner than ndimage.label for non-rectangular domains
+
+## OR Refinement Vectorization (2026-04-24, Issue #3)
+
+### What changed
+
+- `_refine_or()` in reconstruction.py: replaced Python loop (pairs × variants × orix Orientation objects) with numba-parallel kernel
+- Added `_refine_or_cost` njit(parallel=True) kernel in math_ops.py — prange over pairs, inner loop over variants
+- Added `_rotation_matrix_to_quat()` in math_ops.py — Shepperd method, exposed via QuaternionOps.from_rotation_matrix
+- Added `_generate_variants_numpy()` in reconstruction.py — pure numpy variant generation from R matrix + parent symmetry quats (no orix in hot loop)
+- Relaxed optimizer tolerances: xatol/fatol 1e-4→1e-3, maxiter 300→200
+- Added sub-step progress callback: reports every 10 iterations during refinement (progress 0.2→0.3)
+- Moved `from scipy.optimize import minimize` from inside method to module-level import
+- Passed progress callback from `run()` into `_refine_or(_progress)`
+
+### Performance
+
+- Before: ~3+ min for 1259 grains (~7200 pairs, 24 variants) — Python-level orix object creation per iteration
+- After: 0.35s — numba parallel prange over pairs, no Python object creation in hot loop
+- ~500x speedup
+
+### Lessons
+
+- orix Orientation object creation inside tight loops is catastrophic for performance
+- Parent symmetry quats accessible via `phase.symmetry.data.reshape(-1, 4)` — no need for orix Orientation wrapper
+- Duplicate variants from symmetry ops don't affect min-based cost, but dedup via np.unique halves inner work

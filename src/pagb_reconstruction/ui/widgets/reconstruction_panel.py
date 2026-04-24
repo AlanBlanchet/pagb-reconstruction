@@ -22,10 +22,19 @@ from pagb_reconstruction.core.reconstruction import (
 from pagb_reconstruction.ui.theme import ACCENT
 
 _STEP_NAMES = [
-    "Detecting grains", "Setting up OR", "Refining OR",
-    "Building variant graph", "Building graph", "Clustering variants",
-    "Clustering", "Computing parent orientations", "Vote filling",
-    "Merging similar", "Merging inclusions", "Computing variants", "Done",
+    "Detecting grains",
+    "Setting up OR",
+    "Refining OR",
+    "Building variant graph",
+    "Building graph",
+    "Clustering variants",
+    "Clustering",
+    "Computing parent orientations",
+    "Vote filling",
+    "Merging similar",
+    "Merging inclusions",
+    "Computing variants",
+    "Done",
 ]
 
 
@@ -40,6 +49,10 @@ class _ReconstructionWorker(QThread):
         self._config = config
         self._last_step = ""
         self._last_time = 0.0
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
 
     def run(self):
         try:
@@ -47,11 +60,16 @@ class _ReconstructionWorker(QThread):
             engine = ReconstructionEngine(self._ebsd_map, self._config)
             result = engine.run(progress_callback=self._on_progress)
             self.finished.emit(result)
+        except InterruptedError:
+            self.progress.emit("Cancelled", -1.0)
+            self.finished.emit(None)
         except Exception as e:
             self.progress.emit(f"Error: {e}", -1.0)
             self.finished.emit(None)
 
     def _on_progress(self, step: str, pct: float):
+        if self._cancelled:
+            raise InterruptedError("Cancelled by user")
         now = time.monotonic()
         if self._last_step:
             self.step_timed.emit(self._last_step, now - self._last_time)
@@ -83,6 +101,7 @@ class ReconstructionPanel(QWidget):
 
         self._stop_btn = QPushButton("Stop")
         self._stop_btn.setEnabled(False)
+        self._stop_btn.clicked.connect(self._cancel)
         btn_layout.addWidget(self._stop_btn)
         layout.addLayout(btn_layout)
 
@@ -156,10 +175,16 @@ class ReconstructionPanel(QWidget):
             self._step_label.setText("Done")
             self._step_counter.setText(f"{len(_STEP_NAMES)}/{len(_STEP_NAMES)}")
 
-            n_parents = len(np.unique(result.parent_grain_ids[result.parent_grain_ids >= 0]))
+            n_parents = len(
+                np.unique(result.parent_grain_ids[result.parent_grain_ids >= 0])
+            )
             fit_valid = result.fit_angles[~np.isnan(result.fit_angles)]
             mean_fit = float(np.mean(fit_valid)) if len(fit_valid) > 0 else 0
-            pct = np.sum(result.parent_grain_ids >= 0) / len(result.parent_grain_ids) * 100
+            pct = (
+                np.sum(result.parent_grain_ids >= 0)
+                / len(result.parent_grain_ids)
+                * 100
+            )
 
             timing_lines = [f"  {name}: {t:.2f}s" for name, t in self._step_timings]
             self._results_label.setText(
@@ -177,3 +202,7 @@ class ReconstructionPanel(QWidget):
 
         self.reconstruction_finished.emit(result)
         self._worker = None
+
+    def _cancel(self):
+        if self._worker and self._worker.isRunning():
+            self._worker.cancel()

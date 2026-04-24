@@ -68,36 +68,45 @@ def markov_cluster(
     if n == 0:
         return np.array([], dtype=np.int32)
 
-    M = adjacency.toarray().astype(np.float64)
-    np.fill_diagonal(M, 1.0)
+    M = adjacency.astype(np.float64).tocsc()
+    M = M + sparse.eye(n, format="csc")
 
-    col_sums = M.sum(axis=0)
+    col_sums = np.array(M.sum(axis=0)).flatten()
     col_sums[col_sums == 0] = 1.0
-    M /= col_sums[np.newaxis, :]
+    M = M.multiply(1.0 / col_sums).tocsc()
 
     for _ in range(max_iterations):
         M_old = M.copy()
 
-        M = np.linalg.matrix_power(M, expansion_power)
+        M_exp = M
+        for _p in range(expansion_power - 1):
+            M_exp = M_exp @ M
+        M = M_exp
 
-        M = np.power(M, inflation_power)
+        M.data **= inflation_power
+        M.data[M.data < _CLUSTERING.prune_threshold] = 0.0
+        M.eliminate_zeros()
 
-        col_sums = M.sum(axis=0)
+        col_sums = np.array(M.sum(axis=0)).flatten()
         col_sums[col_sums == 0] = 1.0
-        M /= col_sums[np.newaxis, :]
+        M = M.multiply(1.0 / col_sums).tocsc()
 
-        if np.abs(M - M_old).max() < convergence_threshold:
+        diff_data = M - M_old
+        if diff_data.nnz == 0 or np.abs(diff_data.data).max() < convergence_threshold:
             break
 
     labels = np.zeros(n, dtype=np.int32)
-    attractors = np.where(np.diag(M) > 0.01)[0]
+    diag = np.array(M.diagonal()).flatten()
+    attractors = np.where(diag > _CLUSTERING.attractor_threshold)[0]
 
     if len(attractors) == 0:
         return np.arange(n, dtype=np.int32)
 
+    M_csc = M.tocsc()
     for i in range(n):
-        best_attractor = attractors[np.argmax(M[attractors, i])]
-        labels[i] = best_attractor
+        col = M_csc.getcol(i)
+        vals = np.array(col[attractors].todense()).flatten()
+        labels[i] = attractors[np.argmax(vals)]
 
     return remap_labels(labels)
 
@@ -139,10 +148,10 @@ def build_variant_graph(
     parent_sym_quats: np.ndarray,
     threshold_deg: float = 2.5,
     tolerance_deg: float = 2.5,
+    progress_callback=None,
 ) -> tuple[sparse.csr_matrix, np.ndarray]:
     n_grains = len(grains)
-    variants_per_grain = or_obj.variant_quaternions()
-    n_variants = len(variants_per_grain)
+    n_variants = or_obj.n_variants
     dim = n_grains * n_variants
 
     all_candidates = np.zeros((n_grains, n_variants, 4))
@@ -150,26 +159,40 @@ def build_variant_graph(
         all_candidates[i] = or_obj.candidate_parents(grain.mean_quaternion)
 
     id_map = grain_index_map(grains)
-    M = sparse.lil_matrix((dim, dim))
-
+    edges = []
     for i, grain_i in enumerate(grains):
         for nid in grain_i.neighbor_ids:
             j = id_map.get(nid)
-            if j is None or j <= i:
-                continue
-            for va in range(n_variants):
-                for vb in range(n_variants):
-                    angle = MisorientationOps.pair(
-                        all_candidates[i, va], all_candidates[j, vb], parent_sym_quats
-                    )
-                    weight = float(MathOps.cumulative_gaussian(angle, threshold_deg, tolerance_deg))
-                    if weight > _CLUSTERING.min_edge_weight:
-                        ri = i * n_variants + va
-                        ci = j * n_variants + vb
-                        M[ri, ci] = weight
-                        M[ci, ri] = weight
+            if j is not None and j > i:
+                edges.append((i, j))
 
-    return M.tocsr(), all_candidates
+    if not edges:
+        return sparse.csr_matrix((dim, dim)), all_candidates
+
+    edge_pairs = np.array(edges, dtype=np.int64)
+
+    if progress_callback:
+        progress_callback(f"Computing variant edges ({len(edges)} pairs)", 0.35)
+
+    rows, cols, weights = MisorientationOps.build_variant_edges(
+        np.ascontiguousarray(all_candidates, dtype=np.float64),
+        edge_pairs,
+        np.ascontiguousarray(parent_sym_quats, dtype=np.float64),
+        n_variants,
+        threshold_deg,
+        tolerance_deg,
+        _CLUSTERING.min_edge_weight,
+    )
+
+    mask = rows >= 0
+    rows, cols, weights = rows[mask], cols[mask], weights[mask]
+
+    all_rows = np.concatenate([rows, cols])
+    all_cols = np.concatenate([cols, rows])
+    all_weights = np.concatenate([weights, weights])
+
+    M = sparse.csr_matrix((all_weights, (all_rows, all_cols)), shape=(dim, dim))
+    return M, all_candidates
 
 
 def variant_graph_cluster(
@@ -180,45 +203,54 @@ def variant_graph_cluster(
     inflation: float = _CLUSTERING.variant_inflation,
     max_iter: int = _CLUSTERING.variant_max_iter,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    M = adj.toarray().astype(np.float64)
-    np.fill_diagonal(M, 1.0)
-    dim = M.shape[0]
+    dim = adj.shape[0]
+    M = adj.astype(np.float64).tocsc()
+    M = M + sparse.eye(dim, format="csc")
 
-    col_sums = M.sum(axis=0)
+    col_sums = np.array(M.sum(axis=0)).flatten()
     col_sums[col_sums == 0] = 1.0
-    M /= col_sums[np.newaxis, :]
+    M = M.multiply(1.0 / col_sums).tocsc()
 
     for _ in range(max_iter):
         M_old = M.copy()
         M = M @ M
-        M = np.power(M, inflation)
-        M[M < _CLUSTERING.prune_threshold] = 0.0
-        col_sums = M.sum(axis=0)
+        M.data **= inflation
+        M.data[M.data < _CLUSTERING.prune_threshold] = 0.0
+        M.eliminate_zeros()
+        col_sums = np.array(M.sum(axis=0)).flatten()
         col_sums[col_sums == 0] = 1.0
-        M /= col_sums[np.newaxis, :]
-        if np.abs(M - M_old).max() < _CLUSTERING.convergence_threshold:
+        M = M.multiply(1.0 / col_sums).tocsc()
+        diff = M - M_old
+        if diff.nnz == 0 or np.abs(diff.data).max() < _CLUSTERING.convergence_threshold:
             break
 
     best_variants = np.zeros(n_grains, dtype=np.int32)
     parent_oris = np.zeros((n_grains, 4))
 
+    M_csr = M.tocsr()
     for i in range(n_grains):
         scores = np.zeros(n_variants)
         for v in range(n_variants):
             row = i * n_variants + v
-            scores[v] = M[row, :].sum()
+            scores[v] = M_csr[row].sum()
         best_variants[i] = int(np.argmax(scores))
         parent_oris[i] = all_candidates[i, best_variants[i]]
 
     cluster_labels = np.zeros(n_grains, dtype=np.int32)
-    attractors = np.where(np.diag(M) > _CLUSTERING.attractor_threshold)[0]
+    diag = np.array(M.diagonal()).flatten()
+    attractors = np.where(diag > _CLUSTERING.attractor_threshold)[0]
+
     if len(attractors) > 0:
         grain_votes: dict[int, dict[int, float]] = {}
+        M_csc = M.tocsc()
         for i in range(dim):
             grain_idx = i // n_variants
-            best = attractors[np.argmax(M[attractors, i])]
+            col = M_csc.getcol(i)
+            vals = np.array(col[attractors].todense()).flatten()
+            best_idx = np.argmax(vals)
+            best = attractors[best_idx]
             cluster_id = best // n_variants
-            weight = M[best, i]
+            weight = vals[best_idx]
             if grain_idx not in grain_votes:
                 grain_votes[grain_idx] = {}
             votes = grain_votes[grain_idx]

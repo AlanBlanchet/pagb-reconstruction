@@ -22,7 +22,7 @@
 - `_family_from_point_group` always returns CUBIC (ang_io.py)
 - Stop button not connected to cancel logic (reconstruction_panel.py)
 - `phase_colormap` uses enumerate index instead of actual phase ID (colormap.py)
-- `_compute_neighbors` is O(rows*cols) pixel loop — should use grain-level adjacency from labeled_2d
+- `_compute_neighbors` is O(rows\*cols) pixel loop — should use grain-level adjacency from labeled_2d
 
 ### Open items
 
@@ -90,7 +90,7 @@
 
 ### Open items (not fixed)
 
-- `_compute_neighbors` still O(rows*cols) pixel loop — should use grain-level adjacency from labeled_2d.
+- `_compute_neighbors` still O(rows\*cols) pixel loop — should use grain-level adjacency from labeled_2d.
 - `_DARK_BG`, `_DARK_FG`, `_GRID_COLOR` duplicated in stats_panel.py and pole_figure.py.
 - Stop button still not connected to cancellation logic.
 - `highlight_region` still a no-op stub.
@@ -100,7 +100,7 @@
 - Proper cancellation support for reconstruction worker (QThread.requestInterruption)
 - `_family_from_point_group` always returns CUBIC (ang_io.py)
 - `phase_colormap` uses enumerate index instead of actual phase ID (colormap.py)
-- `_compute_neighbors` is O(rows*cols) pixel loop — should use grain-level adjacency
+- `_compute_neighbors` is O(rows\*cols) pixel loop — should use grain-level adjacency
 - `_merge_inclusions` O(n²) — uses linear scan for neighbor ID lookup
 
 ## 2026-04-24 — PixelTopology review
@@ -134,4 +134,32 @@
 - `phase_colormap` uses enumerate index instead of actual phase ID (colormap.py)
 - `_compute_neighbors` O(n_pairs) Python loop — correct but slow for large datasets
 - `_merge_inclusions` O(n²) — uses linear scan for neighbor ID lookup
-- `_refine_or` creates Orientation objects in tight loop — could be slow
+
+## 2026-04-24 — OR refinement correctness review
+
+### Fixed (Critical)
+
+1. **`_refine_or_cost` computes constant w.r.t. OR — refinement was still a no-op.** The old code applied the SAME variant to both grains in a pair: `pi = qi * ~v, pj = qj * ~v`. Misorientation `pi * ~pj = qi * ~v * v * ~qj = qi * ~qj` — the variant cancels, making the cost invariant to OR parameters. Nelder-Mead saw a flat landscape and returned immediately. Fixed by using independent variant pairs `(vi, vj)` — nested loops over all variant combinations so the inter-variant misorientation `~vi * vj` doesn't cancel. O(n_variants²) per pair but correct.
+
+### Fixed (Medium)
+
+2. **Wrong symmetry in cost function.** `_refine_or` passed child symmetry (`_primary_symmetry_quats`) to `_refine_or_cost`, but candidate parent orientations should be compared using parent symmetry. Changed to `parent_sym_quats`. Both are m-3m for cubic→cubic, but conceptually wrong and breaks for non-cubic systems.
+3. **Removed dead `sym_quats` variable** in `_refine_or` — no longer used after fix #2.
+
+### Fixed (Minor)
+
+4. **Rounding precision mismatch** — `_generate_variants_numpy` used `np.round(raw, 3)` while the orix-based `variant_quaternions` uses `np.round(q, 4)`. Harmonized to 4 decimal places.
+
+### Verified correct
+
+- `_rotation_matrix_to_quat` (Shepperd method): Identity matrix → [1,0,0,0] ✓. 180° rotations handled by elif/else branches ✓. Normalizes + enforces w≥0 ✓.
+- `_generate_variants_numpy`: Computes `sym[i] * or_q` matching orix path. Deduplication correct.
+- `_refine_or_cost` prange: each iteration writes `costs[p]` at unique index, no data race.
+- Progress callback: emits 0.2–0.3 range, sensible iteration reporting.
+- No dead code from old approach.
+- No Python skill violations (no imports inside functions).
+
+### Open items
+
+- `_refine_or_cost` O(n_variants²) per pair — 576 for KS. Fine for typical datasets but could be slow for very large maps. Could precompute child misorientations + inter-variant misoris to optimize data reuse.
+- `_generate_variants_numpy` called ~200+ times during optimization (pure Python loop). Could njit or cache variants per unique R.

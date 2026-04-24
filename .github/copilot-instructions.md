@@ -1,5 +1,10 @@
 # PAGB Reconstruction — Project Instructions
 
+## Workflow
+
+- Speed matters. Ship fast, iterate. Don't over-research — act.
+- Real user data (279x319 CTF, 477x1051 hex ANG) must stay performant. Profile before optimizing.
+
 ## Overview
 
 Prior Austenite Grain Boundary reconstruction from EBSD data. PySide6 desktop app with orix-backed crystallographic engine.

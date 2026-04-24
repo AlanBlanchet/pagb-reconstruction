@@ -265,6 +265,7 @@ class MainWindow(QMainWindow):
             style.standardIcon(style.StandardPixmap.SP_MediaStop), "Stop", self
         )
         self._stop_action.setShortcut(QKeySequence("Escape"))
+        self._stop_action.triggered.connect(self._reconstruction_panel._cancel)
         toolbar.addAction(self._stop_action)
 
         toolbar.addSeparator()

@@ -3,6 +3,7 @@ from typing import Literal
 import numpy as np
 from orix.quaternion import Orientation
 from pydantic import Field
+from scipy.optimize import minimize
 
 from pagb_reconstruction.core.base import Displayable
 from pagb_reconstruction.core.ebsd_map import EBSDMap
@@ -20,7 +21,7 @@ from pagb_reconstruction.utils.array_ops import (
     grain_index_map,
     remap_labels,
 )
-from pagb_reconstruction.utils.math_ops import MisorientationOps
+from pagb_reconstruction.utils.math_ops import MisorientationOps, QuaternionOps
 
 
 class ReconstructionConfig(Displayable):
@@ -97,6 +98,19 @@ def _axis_angle_to_rotation(ax_vec: np.ndarray) -> np.ndarray:
     return np.eye(3) + np.sin(ax_norm) * K + (1 - np.cos(ax_norm)) * (K @ K)
 
 
+def _generate_variants_numpy(R: np.ndarray, parent_sym_quats: np.ndarray) -> np.ndarray:
+    or_q = QuaternionOps.from_rotation_matrix(R)
+    n_sym = parent_sym_quats.shape[0]
+    raw = np.empty((n_sym, 4))
+    for i in range(n_sym):
+        v = QuaternionOps.multiply(parent_sym_quats[i], or_q)
+        if v[0] < 0:
+            v = -v
+        raw[i] = v
+    _, idx = np.unique(np.round(raw, 4), axis=0, return_index=True)
+    return raw[np.sort(idx)]
+
+
 class ReconstructionEngine:
     def __init__(self, ebsd_map: EBSDMap, config: ReconstructionConfig):
         self._map = ebsd_map
@@ -120,7 +134,7 @@ class ReconstructionEngine:
 
         if self._config.optimize_or:
             _progress("Refining OR", 0.2)
-            self._or = self._refine_or()
+            self._or = self._refine_or(_progress)
 
         if self._config.algorithm == "variant_graph":
             return self._run_variant_graph(_progress)
@@ -135,6 +149,7 @@ class ReconstructionEngine:
             sym_quats,
             threshold_deg=self._config.threshold_deg,
             tolerance_deg=self._config.tolerance_deg,
+            progress_callback=_progress,
         )
 
         _progress("Clustering variants", 0.5)
@@ -260,14 +275,13 @@ class ReconstructionEngine:
         self._parent_labels = remap_labels(self._parent_labels)
         return parent_quats
 
-    def _refine_or(self) -> OrientationRelationship:
-        from scipy.optimize import minimize
-
-        sym_quats = self._map._primary_symmetry_quats()
+    def _refine_or(self, progress_callback=None) -> OrientationRelationship:
         if len(self._grains) < 2:
             return self._or
 
-        grain_quats = np.array([g.mean_quaternion for g in self._grains])
+        grain_quats = np.array(
+            [g.mean_quaternion for g in self._grains], dtype=np.float64
+        )
         gid_map = grain_index_map(self._grains)
         pairs = []
         for grain in self._grains:
@@ -279,52 +293,45 @@ class ReconstructionEngine:
         if not pairs:
             return self._or
 
+        pair_arr = np.array(pairs, dtype=np.int32)
+
+        max_pairs = 500
+        if len(pair_arr) > max_pairs:
+            rng = np.random.default_rng(42)
+            idx = rng.choice(len(pair_arr), max_pairs, replace=False)
+            pair_arr = pair_arr[idx]
+
+        pair_qi = np.ascontiguousarray(grain_quats[pair_arr[:, 0]])
+        pair_qj = np.ascontiguousarray(grain_quats[pair_arr[:, 1]])
+
         base_R = self._or.rotation_matrix.copy()
+        parent_sym_quats = np.asarray(
+            self._or.parent_phase.symmetry.data, dtype=np.float64
+        ).reshape(-1, 4)
+
+        iteration_count = [0]
 
         def cost(params):
             delta_R = _axis_angle_to_rotation(params[:3])
             R_test = delta_R @ base_R
-            or_ori = Orientation.from_matrix(R_test.reshape(1, 3, 3))
-            parent_sym_oris = Orientation(self._or.parent_phase.symmetry.data)
-
-            test_variants = []
-            seen: set[tuple[float, ...]] = set()
-            for ps in parent_sym_oris:
-                v = ps * or_ori
-                q = v.data.flatten()
-                if q[0] < 0:
-                    q = -q
-                key = tuple(np.round(q, 3))
-                if key not in seen:
-                    seen.add(key)
-                    test_variants.append(q)
-            test_variants_arr = np.array(test_variants)
-
-            total_fit = 0.0
-            for i, j in pairs:
-                qi, qj = grain_quats[i], grain_quats[j]
-                child_ori_i = Orientation(qi.reshape(1, 4))
-                child_ori_j = Orientation(qj.reshape(1, 4))
-
-                best_angle = 999.0
-                for v in test_variants_arr:
-                    var_ori = Orientation(v.reshape(1, 4))
-                    parent_i = child_ori_i * (~var_ori)
-                    parent_j = child_ori_j * (~var_ori)
-                    pi_q = parent_i.data.flatten()
-                    pj_q = parent_j.data.flatten()
-                    angle = MisorientationOps.pair(pi_q, pj_q, sym_quats)
-                    if angle < best_angle:
-                        best_angle = angle
-                total_fit += best_angle
-            return total_fit / len(pairs)
+            test_variants = _generate_variants_numpy(R_test, parent_sym_quats)
+            total = MisorientationOps.refine_or_cost(
+                pair_qi, pair_qj, test_variants, parent_sym_quats
+            )
+            iteration_count[0] += 1
+            if iteration_count[0] % 10 == 0 and progress_callback:
+                frac = min(iteration_count[0] / 100, 1.0)
+                progress_callback(
+                    f"Refining OR (iter {iteration_count[0]})", 0.2 + frac * 0.1
+                )
+            return total
 
         initial_cost = cost(np.zeros(3))
         result = minimize(
             cost,
             x0=np.zeros(3),
             method="Nelder-Mead",
-            options={"maxiter": 300, "xatol": 1e-4, "fatol": 1e-4},
+            options={"maxiter": 100, "xatol": 1e-3, "fatol": 1e-3},
         )
 
         if result.fun >= initial_cost:
