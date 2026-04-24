@@ -2,7 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QSettings, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from pagb_reconstruction.core.ebsd_map import EBSDMap
+from pagb_reconstruction.core.reconstruction import ReconstructionConfig
 from pagb_reconstruction.core.updater import UpdateChecker
 from pagb_reconstruction.io.base import load_ebsd
 from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
@@ -44,8 +45,11 @@ class MainWindow(QMainWindow):
         self._result = None
         self._recon_start = datetime.now()
         self._settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
+        self.setAcceptDrops(True)
         self._setup_ui()
         self._restore_state()
+        if not self._settings.contains("window_geometry"):
+            self.showMaximized()
 
     def _setup_ui(self):
         self.setWindowTitle("PAGB Reconstruction")
@@ -355,8 +359,6 @@ class MainWindow(QMainWindow):
         self._map_viewer.pixel_hovered.connect(self._on_pixel_hover)
         self._map_viewer.pixel_clicked.connect(self._on_pixel_click)
 
-        from PySide6.QtCore import QTimer, QUrl
-
         QTimer.singleShot(3000, self._check_updates)
         self._update_bar.open_url.connect(
             lambda url: QDesktopServices.openUrl(QUrl(url))
@@ -380,7 +382,7 @@ class MainWindow(QMainWindow):
         self._log(f"OR changed to: {or_name}")
 
     def _on_pixel_hover(self, x: int, y: int):
-        if self._ebsd_map is None:
+        if self._ebsd_map is None or self._ebsd_map.is_sparse:
             return
         rows, cols = self._ebsd_map.shape
         if not (0 <= y < rows and 0 <= x < cols):
@@ -401,7 +403,7 @@ class MainWindow(QMainWindow):
         )
 
     def _on_pixel_click(self, x: int, y: int):
-        if self._ebsd_map is None:
+        if self._ebsd_map is None or self._ebsd_map.is_sparse:
             return
         rows, cols = self._ebsd_map.shape
         if not (0 <= y < rows and 0 <= x < cols):
@@ -494,8 +496,6 @@ class MainWindow(QMainWindow):
         or_config = self._or_panel.get_or_type()
         config_dict = config.model_dump()
         config_dict["or_type"] = or_config
-        from pagb_reconstruction.core.reconstruction import ReconstructionConfig
-
         full_config = ReconstructionConfig(**config_dict)
         self._reconstruction_panel.start_reconstruction(self._ebsd_map, full_config)
         self._progress_bar.setVisible(True)
@@ -665,6 +665,17 @@ class MainWindow(QMainWindow):
         state = self._settings.value("window_state")
         if state:
             self.restoreState(state)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        if urls:
+            path = Path(urls[0].toLocalFile())
+            if path.is_file():
+                self._load_file(path)
 
     def closeEvent(self, event):
         self._settings.setValue("window_geometry", self.saveGeometry())

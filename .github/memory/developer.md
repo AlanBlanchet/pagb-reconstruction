@@ -195,7 +195,7 @@ anel.py: Volume fraction percentages, QPixmap color swatches, crystal family nam
 
 ### Part H: README.md — features, install, dev, build, release, architecture
 
-### Part I: .gitignore — added \_version.py, _.AppImage, _.spec.bak
+### Part I: .gitignore — added \_version.py, _.AppImage,_.spec.bak
 
 ### Lessons
 
@@ -212,3 +212,39 @@ anel.py: Volume fraction percentages, QPixmap color swatches, crystal family nam
 - build-appimage.sh: Replaced ImageMagick `convert` with Pillow (PIL) one-liner for icon generation; added icon copy to AppDir root for AppImage spec compliance
 - pagb.spec: Added `copy_metadata('pagb-reconstruction')` to datas for `importlib.metadata.version()` to work in frozen builds
 - pagb.spec: Added hidden imports: networkx, pydantic, packaging, matplotlib (+ backends), orix.quaternion.symmetry
+
+## Bug Fix Pass — GitHub Issue #2 (2026-04-24)
+
+### Bug 1: \_primary_symmetry_quats() not_indexed phase crash
+
+- `phases_in_data.ids` can include -1 (not_indexed); `point_group` is None for those
+- Fixed: loop over ids, skip pid < 0 or None point_group, raise ValueError if no valid phase
+- Also fixed: `_ipf_map()`, `schmid_factor_map()`, `parent_ipf_map()` loops now skip pid < 0
+
+### Bug 2: Sparse grid reshape crash
+
+- Hex grid ANG files: `xmap.size != prod(xmap.shape)` — e.g. 250664 vs 501327
+- Added `is_sparse` property, `_grid_indices()` (row/col from coordinates), `_to_grid(data, fill)` scatter method
+- Replaced ALL `.reshape(self.shape)` calls with `_to_grid()` (property_map, phase_map, \_ipf_map, euler_angle_map, band_contrast_map, schmid_factor_map, all result maps)
+- Grid-neighbor methods (KAM, misorientation, grain_boundary, CSL boundaries): return zeros for sparse — needs fundamentally different neighbor computation
+- GROD map: sparse-aware via `_grid_indices()` lookup dict for pixel → (row, col) mapping
+- `run_grain_detection()`: raises NotImplementedError for sparse maps
+- `schmid_factor_map`: fixed `n_pixels = self.crystal_map.size` (was `rows * cols`)
+
+### Bug 3: Drag-and-drop file loading
+
+- Added `self.setAcceptDrops(True)` in MainWindow.**init**
+- Added `dragEnterEvent()` + `dropEvent()` — accepts URL drops, loads first file
+
+### Bug 4: Extensionless file loading cleanup
+
+- Removed unused `_EXT_MAP` dict from io/base.py
+- Replaced `hasattr(phase, "structure")` with `getattr()` chain
+- Replaced `hasattr(phase, "color")` with `getattr(phase, "color", None) or "#808080"`
+- `extract_phases()` now skips phase_id < 0 (not_indexed)
+
+### Known Remaining Issues
+
+- UI hover/click (`_on_pixel_hover`, `_on_pixel_click`) uses `flat = y * cols + x` which is wrong for sparse maps — needs pixel lookup table
+- Sparse maps: grain detection, KAM, misorientation, grain boundary, CSL boundary maps not yet supported
+- orix auto-renames phases on ANG load ("Ferrite" → "Fe") — cosmetic issue

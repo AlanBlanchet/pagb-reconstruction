@@ -1,8 +1,10 @@
+import shutil
+import tempfile
 from pathlib import Path
 from typing import ClassVar
 
 from orix.crystal_map import CrystalMap
-from orix.io import load as orix_load
+from orix.io import load as orix_load, save as orix_save
 from pydantic import BaseModel
 
 from pagb_reconstruction.core.crystal import CrystalFamily, LatticeParams
@@ -13,14 +15,23 @@ from pagb_reconstruction.core.phase import PhaseConfig
 class EBSDLoader(BaseModel):
     supported_extensions: ClassVar[list[str]]
 
-    def load(self, path: Path) -> EBSDMap:
-        xmap = orix_load(str(path))
+    def load(self, path: Path, detected_ext: str | None = None) -> EBSDMap:
+        load_path = path
+        tmp_dir = None
+        try:
+            if detected_ext and path.suffix.lower() != detected_ext:
+                tmp_dir = tempfile.mkdtemp()
+                tmp = Path(tmp_dir) / (path.stem + detected_ext)
+                tmp.symlink_to(path.resolve())
+                load_path = tmp
+            xmap = orix_load(str(load_path))
+        finally:
+            if tmp_dir is not None:
+                shutil.rmtree(tmp_dir)
         phases = extract_phases(xmap)
         return EBSDMap(crystal_map=xmap, phases=phases)
 
     def save(self, ebsd_map: EBSDMap, path: Path) -> None:
-        from orix.io import save as orix_save
-
         orix_save(str(path), ebsd_map.crystal_map)
 
 
@@ -38,24 +49,48 @@ def load_ebsd(path: str | Path) -> EBSDMap:
 
     loader_cls = _LOADERS.get(suffix)
     if loader_cls is None:
+        detected = _detect_format(path)
+        loader_cls = _LOADERS.get(detected)
+        detected_ext = detected
+    else:
+        detected_ext = None
+    if loader_cls is None:
         raise ValueError(
             f"Unsupported file format: {suffix}. Supported: {list(_LOADERS.keys())}"
         )
 
     loader = loader_cls()
-    return loader.load(path)
+    return loader.load(path, detected_ext=detected_ext)
+
+
+def _detect_format(path: Path) -> str:
+    try:
+        with open(path, "rb") as f:
+            head = f.read(256).decode("utf-8", errors="ignore")
+    except OSError:
+        return ""
+    if head.startswith("Channel Text File"):
+        return ".ctf"
+    if "# TEM_PIXperUM" in head or "# x-star" in head:
+        return ".ang"
+    magic = head[:8].encode()
+    if magic[:4] == b"\x89HDF" or magic[:8] == b"\x89HDF\r\n\x1a\n":
+        return ".h5"
+    return ""
 
 
 def extract_phases(xmap: CrystalMap) -> list[PhaseConfig]:
     phases = []
     phase_list = xmap.phases_in_data
     for phase_id in phase_list.ids:
+        if phase_id < 0:
+            continue
         phase = phase_list[phase_id]
         pg = str(phase.point_group) if phase.point_group else "m-3m"
         lattice = (
-            phase.structure.lattice
-            if hasattr(phase, "structure") and phase.structure
-            else None
+            getattr(phase, "structure", None)
+            and phase.structure
+            and getattr(phase.structure, "lattice", None)
         )
         lp = _lattice_from_structure(lattice) if lattice else _default_lattice(pg)
         family = _family_from_point_group(pg)
@@ -65,9 +100,7 @@ def extract_phases(xmap: CrystalMap) -> list[PhaseConfig]:
                 family=family,
                 point_group=pg,
                 lattice=lp,
-                color=phase.color
-                if hasattr(phase, "color") and phase.color
-                else "#808080",
+                color=getattr(phase, "color", None) or "#808080",
             )
         )
     return phases

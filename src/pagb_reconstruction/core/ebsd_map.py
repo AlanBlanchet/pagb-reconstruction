@@ -8,7 +8,11 @@ from orix.quaternion import Orientation
 from orix.vector import Vector3d
 
 from pagb_reconstruction.core.base import SpatialMap, map_property
-from pagb_reconstruction.core.constants import BoundaryThresholds, CSLParams, SlipSystems
+from pagb_reconstruction.core.constants import (
+    BoundaryThresholds,
+    CSLParams,
+    SlipSystems,
+)
 from pagb_reconstruction.core.grain import Grain, detect_grains
 from pagb_reconstruction.core.phase import PhaseConfig
 from pagb_reconstruction.utils.array_ops import boundaries_from_2d
@@ -16,12 +20,12 @@ from pagb_reconstruction.utils.math_ops import MisorientationOps
 
 
 class EBSDMap(SpatialMap):
-
     crystal_map: CrystalMap
     phases: list[PhaseConfig]
     grains: list[Grain] | None = None
     parent_map: CrystalMap | None = None
     _result: Any = None
+    _grid_cache: tuple[np.ndarray, np.ndarray] | None = None
 
     def set_result(self, result: Any):
         self._result = result
@@ -56,15 +60,47 @@ class EBSDMap(SpatialMap):
     def phase_ids(self) -> np.ndarray:
         return self.crystal_map.phase_id
 
+    @property
+    def is_sparse(self) -> bool:
+        rows, cols = self.shape
+        return self.crystal_map.size != rows * cols
+
+    def _grid_indices(self) -> tuple[np.ndarray, np.ndarray]:
+        if self._grid_cache is not None:
+            return self._grid_cache
+        xmap = self.crystal_map
+        y = xmap.y
+        x = xmap.x
+        dy = float(xmap.dy) or 1.0
+        dx = float(xmap.dx) or 1.0
+        rows = np.round((y - y.min()) / dy).astype(int)
+        cols = np.round((x - x.min()) / dx).astype(int)
+        self._grid_cache = (rows, cols)
+        return self._grid_cache
+
+    def _to_grid(self, data: np.ndarray, fill: float = 0.0) -> np.ndarray:
+        if not self.is_sparse:
+            if data.ndim == 1:
+                return data.reshape(self.shape)
+            return data.reshape(*self.shape, *data.shape[1:])
+        rows, cols = self._grid_indices()
+        if data.ndim == 1:
+            grid = np.full(self.shape, fill, dtype=data.dtype)
+            grid[rows, cols] = data
+        else:
+            grid = np.full((*self.shape, *data.shape[1:]), fill, dtype=data.dtype)
+            grid[rows, cols] = data
+        return grid
+
     def property_map(self, name: str) -> np.ndarray:
         prop = self.crystal_map.prop.get(name)
         if prop is None:
             return np.zeros(self.shape)
-        return prop.reshape(self.shape)
+        return self._to_grid(prop)
 
     @map_property("Phase", dtype="discrete", category="phase")
     def phase_map(self) -> np.ndarray:
-        return self.crystal_map.phase_id.reshape(self.shape)
+        return self._to_grid(self.crystal_map.phase_id)
 
     @map_property("IPF-Z", dtype="rgb", category="orientation")
     def ipf_z_map(self) -> np.ndarray:
@@ -90,16 +126,18 @@ class EBSDMap(SpatialMap):
         rgb = np.zeros((n_pixels, 3))
         phases = self.crystal_map.phases_in_data
         for pid in phases.ids:
+            if pid < 0 or phases[pid].point_group is None:
+                continue
             mask = self.crystal_map.phase_id == pid
             rotations = self.crystal_map[mask].rotations
             ori = Orientation(rotations, symmetry=phases[pid].point_group)
             rgb[mask] = ipf_colors(ori, direction)
-        return rgb.reshape(*self.shape, 3)
+        return self._to_grid(rgb)
 
     @map_property("Euler Angles", dtype="rgb", category="orientation")
     def euler_angle_map(self) -> np.ndarray:
         euler = self.crystal_map.rotations.to_euler(degrees=True)
-        return euler.reshape(*self.shape, 3)
+        return self._to_grid(euler)
 
     @map_property("Grain ID", dtype="discrete", category="microstructure")
     def grain_id_map(self) -> np.ndarray:
@@ -113,18 +151,27 @@ class EBSDMap(SpatialMap):
 
     @map_property("Band Contrast", dtype="scalar", category="quality")
     def band_contrast_map(self) -> np.ndarray:
-        for key in ("bc", "iq", "ci"):
-            prop = self.crystal_map.prop.get(key)
-            if prop is not None:
-                return prop.reshape(self.shape)
+        props = self.crystal_map.prop
+        keys_lower = {k.lower(): k for k in props}
+        for candidate in ("bc", "iq", "ci"):
+            real_key = keys_lower.get(candidate)
+            if real_key is not None:
+                return self._to_grid(props[real_key])
         return np.zeros(self.shape)
 
     def _primary_symmetry_quats(self) -> np.ndarray:
         phases = self.crystal_map.phases_in_data
-        return phases[phases.ids[0]].point_group.data
+        for pid in phases.ids:
+            if pid >= 0 and phases[pid].point_group is not None:
+                return phases[pid].point_group.data
+        raise ValueError("No indexed phase with point group found")
 
-    @map_property("KAM", dtype="scalar", unit="\u00b0", colormap="inferno", category="deformation")
+    @map_property(
+        "KAM", dtype="scalar", unit="\u00b0", colormap="inferno", category="deformation"
+    )
     def kam_map(self) -> np.ndarray:
+        if self.is_sparse:
+            return np.zeros(self.shape, dtype=np.float64)
         sym_quats = self._primary_symmetry_quats()
         misori_h, misori_v = MisorientationOps.neighbors(
             self.quaternions, self.shape, sym_quats
@@ -150,44 +197,62 @@ class EBSDMap(SpatialMap):
         count[count == 0] = 1.0
         return kam / count
 
-    @map_property("Parent Grain ID", requires_result=True, dtype="discrete", category="reconstruction")
+    @map_property(
+        "Parent Grain ID",
+        requires_result=True,
+        dtype="discrete",
+        category="reconstruction",
+    )
     def parent_grain_id_map(self) -> np.ndarray:
-        if self._result is None:
-            return np.zeros(self.shape, dtype=np.float32)
-        return self._result.parent_grain_ids.reshape(self.shape).astype(np.float32)
+        return self._to_grid(self._result.parent_grain_ids).astype(np.float32)
 
-    @map_property("Variant ID", requires_result=True, dtype="discrete", category="reconstruction")
+    @map_property(
+        "Variant ID", requires_result=True, dtype="discrete", category="reconstruction"
+    )
     def variant_id_map(self) -> np.ndarray:
-        if self._result is None:
-            return np.zeros(self.shape, dtype=np.float32)
-        return self._result.variant_ids.reshape(self.shape).astype(np.float32)
+        return self._to_grid(self._result.variant_ids).astype(np.float32)
 
-    @map_property("Fit Quality", requires_result=True, dtype="scalar", unit="\u00b0", colormap="RdYlGn_r", category="reconstruction")
+    @map_property(
+        "Fit Quality",
+        requires_result=True,
+        dtype="scalar",
+        unit="\u00b0",
+        colormap="RdYlGn_r",
+        category="reconstruction",
+    )
     def fit_quality_map(self) -> np.ndarray:
-        if self._result is None:
-            return np.full(self.shape, np.nan)
-        return self._result.fit_angles.reshape(self.shape)
+        return self._to_grid(self._result.fit_angles, fill=np.nan)
 
-    @map_property("Parent IPF", requires_result=True, dtype="rgb", category="reconstruction")
+    @map_property(
+        "Parent IPF", requires_result=True, dtype="rgb", category="reconstruction"
+    )
     def parent_ipf_map(self) -> np.ndarray:
-        if self._result is None:
-            return np.zeros((*self.shape, 3))
         parent_quats = self._result.parent_orientations
         phases = self.crystal_map.phases_in_data
-        sym = phases[phases.ids[0]].point_group
+        sym = None
+        for pid in phases.ids:
+            if pid >= 0 and phases[pid].point_group is not None:
+                sym = phases[pid].point_group
+                break
+        if sym is None:
+            return np.zeros((*self.shape, 3))
         ori = Orientation(parent_quats.reshape(-1, 4), symmetry=sym)
         key = IPFColorKeyTSL(sym, direction=Vector3d.zvector())
-        rgb = key.orientation2color(ori).reshape(*self.shape, 3)
-        parent_ids = self._result.parent_grain_ids.reshape(self.shape)
+        rgb = key.orientation2color(ori)
+        rgb_grid = self._to_grid(rgb)
+        parent_ids = self._to_grid(self._result.parent_grain_ids)
         boundary = boundaries_from_2d(parent_ids)
-        rgb[boundary] = 0.1
-        return rgb
+        rgb_grid[boundary] = 0.1
+        return rgb_grid
 
-    @map_property("Parent + Boundaries", requires_result=True, dtype="rgb", category="reconstruction")
+    @map_property(
+        "Parent + Boundaries",
+        requires_result=True,
+        dtype="rgb",
+        category="reconstruction",
+    )
     def parent_boundary_map(self) -> np.ndarray:
-        if self._result is None:
-            return np.zeros((*self.shape, 3))
-        parent_ids = self._result.parent_grain_ids.reshape(self.shape)
+        parent_ids = self._to_grid(self._result.parent_grain_ids, fill=-1)
         unique_ids = np.unique(parent_ids)
         cmap = matplotlib.colormaps["tab20"]
         rgb = np.zeros((*self.shape, 3))
@@ -198,24 +263,38 @@ class EBSDMap(SpatialMap):
         rgb[boundary] = 0.0
         return rgb
 
-    @map_property("GOS", dtype="scalar", unit="\u00b0", colormap="hot", category="deformation")
+    @map_property(
+        "GOS", dtype="scalar", unit="\u00b0", colormap="hot", category="deformation"
+    )
     def gos_map(self) -> np.ndarray:
         gos = np.zeros(self.shape, dtype=np.float64)
         if not self.grains:
             return gos
         sym_quats = self._primary_symmetry_quats()
         for g in self.grains:
-            angles = np.array([
-                MisorientationOps.pair(self.quaternions[px], g.mean_quaternion, sym_quats)
-                for px in g.pixel_indices
-            ])
+            angles = np.array(
+                [
+                    MisorientationOps.pair(
+                        self.quaternions[px], g.mean_quaternion, sym_quats
+                    )
+                    for px in g.pixel_indices
+                ]
+            )
             val = angles.mean()
             r, c = g.row_col
             gos[r, c] = val
         return gos
 
-    @map_property("Misorientation", dtype="scalar", unit="\u00b0", colormap="viridis", category="deformation")
+    @map_property(
+        "Misorientation",
+        dtype="scalar",
+        unit="\u00b0",
+        colormap="viridis",
+        category="deformation",
+    )
     def misorientation_map(self) -> np.ndarray:
+        if self.is_sparse:
+            return np.zeros(self.shape, dtype=np.float64)
         sym_quats = self._primary_symmetry_quats()
         misori_h, misori_v = MisorientationOps.neighbors(
             self.quaternions, self.shape, sym_quats
@@ -228,6 +307,10 @@ class EBSDMap(SpatialMap):
         return np.maximum(h_full, v_full)
 
     def run_grain_detection(self, threshold_deg: float = 5.0, min_size: int = 5):
+        if self.is_sparse:
+            raise NotImplementedError(
+                "Grain detection requires dense grid data; sparse maps not yet supported"
+            )
         sym_quats = self._primary_symmetry_quats()
         self.grains = detect_grains(
             quaternions=self.quaternions,
@@ -242,6 +325,8 @@ class EBSDMap(SpatialMap):
         return boundaries_from_2d(id_map)
 
     def grain_boundary_map(self) -> np.ndarray:
+        if self.is_sparse:
+            return np.zeros(self.shape, dtype=bool)
         _thresholds = BoundaryThresholds()
         sym_quats = self._primary_symmetry_quats()
         misori_h, misori_v = MisorientationOps.neighbors(
@@ -251,36 +336,60 @@ class EBSDMap(SpatialMap):
         rows, cols = self.shape
         boundary = np.zeros((rows, cols), dtype=bool)
         if misori_h.size == rows * (cols - 1):
-            boundary[:, 1:] |= misori_h.reshape(rows, cols - 1) >= _thresholds.grain_angle_deg
+            boundary[:, 1:] |= (
+                misori_h.reshape(rows, cols - 1) >= _thresholds.grain_angle_deg
+            )
         if misori_v.size == (rows - 1) * cols:
-            boundary[1:, :] |= misori_v.reshape(rows - 1, cols) >= _thresholds.grain_angle_deg
+            boundary[1:, :] |= (
+                misori_v.reshape(rows - 1, cols) >= _thresholds.grain_angle_deg
+            )
         return boundary
 
-    @map_property("GROD", dtype="scalar", unit="\u00b0", colormap="hot", category="deformation")
+    @map_property(
+        "GROD", dtype="scalar", unit="\u00b0", colormap="hot", category="deformation"
+    )
     def grod_map(self) -> np.ndarray:
         grod = np.zeros(self.shape, dtype=np.float64)
         if not self.grains:
             return grod
-        rows, cols = self.shape
         sym_quats = self._primary_symmetry_quats()
-        for g in self.grains:
-            for px in g.pixel_indices:
-                angle = MisorientationOps.pair(
-                    self.quaternions[px], g.mean_quaternion, sym_quats
-                )
-                r, c = px // cols, px % cols
-                grod[r, c] = angle
+        if self.is_sparse:
+            ri, ci = self._grid_indices()
+            px_to_rc = dict(zip(range(self.crystal_map.size), zip(ri, ci)))
+            for g in self.grains:
+                for px in g.pixel_indices:
+                    angle = MisorientationOps.pair(
+                        self.quaternions[px], g.mean_quaternion, sym_quats
+                    )
+                    r, c = px_to_rc[px]
+                    grod[r, c] = angle
+        else:
+            rows, cols = self.shape
+            for g in self.grains:
+                for px in g.pixel_indices:
+                    angle = MisorientationOps.pair(
+                        self.quaternions[px], g.mean_quaternion, sym_quats
+                    )
+                    r, c = px // cols, px % cols
+                    grod[r, c] = angle
         return grod
 
-    @map_property("Schmid Factor", dtype="scalar", value_range=(0.0, 0.5), colormap="coolwarm", category="mechanical")
+    @map_property(
+        "Schmid Factor",
+        dtype="scalar",
+        value_range=(0.0, 0.5),
+        colormap="coolwarm",
+        category="mechanical",
+    )
     def schmid_factor_map(self) -> np.ndarray:
-        rows, cols = self.shape
-        n_pixels = rows * cols
+        n_pixels = self.crystal_map.size
         schmid = np.zeros(n_pixels, dtype=np.float64)
         phases = self.crystal_map.phases_in_data
         _slip = SlipSystems()
 
         for pid in phases.ids:
+            if pid < 0 or phases[pid].point_group is None:
+                continue
             mask = self.crystal_map.phase_id == pid
             pg = str(phases[pid].point_group)
             if "m-3m" in pg or "432" in pg:
@@ -315,10 +424,12 @@ class EBSDMap(SpatialMap):
                         max_sf = sf
                 schmid[idx] = max_sf
 
-        return schmid.reshape(self.shape)
+        return self._to_grid(schmid)
 
     @map_property("CSL Boundaries", dtype="rgb", category="microstructure")
     def csl_boundary_map(self) -> np.ndarray:
+        if self.is_sparse:
+            return np.ones((*self.shape, 3), dtype=np.float64)
         rows, cols = self.shape
         sym_quats = self._primary_symmetry_quats()
         rgb = np.ones((rows, cols, 3), dtype=np.float64)
@@ -336,10 +447,22 @@ class EBSDMap(SpatialMap):
             for c in range(cols - 1):
                 idx1 = r * cols + c
                 idx2 = r * cols + c + 1
-                angle, axis = MisorientationOps.axis_angle_pair(quats[idx1], quats[idx2], sym_quats)
-                color = self._classify_csl(angle, axis, _csl.sigma3_angle, sigma3_axis, _csl.sigma3_tolerance,
-                                           _csl.sigma9_angle, sigma9_axis, _csl.sigma9_tolerance,
-                                           _csl.axis_dot_threshold, _csl.low_angle_threshold, _csl.high_angle_threshold)
+                angle, axis = MisorientationOps.axis_angle_pair(
+                    quats[idx1], quats[idx2], sym_quats
+                )
+                color = self._classify_csl(
+                    angle,
+                    axis,
+                    _csl.sigma3_angle,
+                    sigma3_axis,
+                    _csl.sigma3_tolerance,
+                    _csl.sigma9_angle,
+                    sigma9_axis,
+                    _csl.sigma9_tolerance,
+                    _csl.axis_dot_threshold,
+                    _csl.low_angle_threshold,
+                    _csl.high_angle_threshold,
+                )
                 if color is not None:
                     rgb[r, c] = color
                     rgb[r, c + 1] = color
@@ -348,10 +471,22 @@ class EBSDMap(SpatialMap):
             for c in range(cols):
                 idx1 = r * cols + c
                 idx2 = (r + 1) * cols + c
-                angle, axis = MisorientationOps.axis_angle_pair(quats[idx1], quats[idx2], sym_quats)
-                color = self._classify_csl(angle, axis, _csl.sigma3_angle, sigma3_axis, _csl.sigma3_tolerance,
-                                           _csl.sigma9_angle, sigma9_axis, _csl.sigma9_tolerance,
-                                           _csl.axis_dot_threshold, _csl.low_angle_threshold, _csl.high_angle_threshold)
+                angle, axis = MisorientationOps.axis_angle_pair(
+                    quats[idx1], quats[idx2], sym_quats
+                )
+                color = self._classify_csl(
+                    angle,
+                    axis,
+                    _csl.sigma3_angle,
+                    sigma3_axis,
+                    _csl.sigma3_tolerance,
+                    _csl.sigma9_angle,
+                    sigma9_axis,
+                    _csl.sigma9_tolerance,
+                    _csl.axis_dot_threshold,
+                    _csl.low_angle_threshold,
+                    _csl.high_angle_threshold,
+                )
                 if color is not None:
                     rgb[r, c] = color
                     rgb[r + 1, c] = color
@@ -380,9 +515,15 @@ class EBSDMap(SpatialMap):
         if axis_norm < 1e-10:
             return np.array([0.0, 0.0, 0.0])
         axis_unit = axis / axis_norm
-        if abs(angle - s3_angle) < s3_tol and abs(np.dot(axis_unit, s3_axis)) > dot_threshold:
+        if (
+            abs(angle - s3_angle) < s3_tol
+            and abs(np.dot(axis_unit, s3_axis)) > dot_threshold
+        ):
             return np.array([1.0, 0.0, 0.0])
-        if abs(angle - s9_angle) < s9_tol and abs(np.dot(axis_unit, s9_axis)) > dot_threshold:
+        if (
+            abs(angle - s9_angle) < s9_tol
+            and abs(np.dot(axis_unit, s9_axis)) > dot_threshold
+        ):
             return np.array([0.0, 0.0, 1.0])
         if angle >= high_angle:
             return np.array([0.0, 0.0, 0.0])

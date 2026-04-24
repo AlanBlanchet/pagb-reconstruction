@@ -1,3 +1,4 @@
+import functools
 from collections.abc import Callable
 from typing import Any, ClassVar, Literal
 
@@ -95,6 +96,14 @@ class _MapPropertyMeta:
         self.category = category
 
 
+def _empty_for_dtype(shape: tuple[int, ...], dtype: MapDtype) -> np.ndarray:
+    if dtype == "rgb":
+        return np.zeros((*shape, 3))
+    if dtype == "discrete":
+        return np.zeros(shape, dtype=np.float32)
+    return np.full(shape, np.nan)
+
+
 def map_property(
     name: str,
     requires_result: bool = False,
@@ -104,11 +113,21 @@ def map_property(
     unit: str | None = None,
     category: str | None = None,
 ) -> Callable:
+    meta = _MapPropertyMeta(
+        name, requires_result, dtype=dtype, colormap=colormap,
+        value_range=value_range, unit=unit, category=category,
+    )
+
     def decorator(fn: Callable) -> Callable:
-        setattr(fn, _MAP_PROPERTY_ATTR, _MapPropertyMeta(
-            name, requires_result, dtype=dtype, colormap=colormap,
-            value_range=value_range, unit=unit, category=category,
-        ))
+        if requires_result:
+            @functools.wraps(fn)
+            def wrapper(self, *args, **kwargs):
+                if self._result is None:
+                    return _empty_for_dtype(self.shape, dtype)
+                return fn(self, *args, **kwargs)
+            setattr(wrapper, _MAP_PROPERTY_ATTR, meta)
+            return wrapper
+        setattr(fn, _MAP_PROPERTY_ATTR, meta)
         return fn
 
     return decorator

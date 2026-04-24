@@ -1,5 +1,37 @@
 # Generalizer Memory
 
+## 2026-04-24: Fourth pass — requires_result decorator auto-guard
+
+### Changes made
+
+1. **`requires_result` auto-empty in `map_property` decorator** — The `map_property` decorator now wraps `requires_result=True` methods with an auto-check: if `self._result is None`, returns `_empty_for_dtype(self.shape, dtype)` instead of calling the method. Eliminates 5 manual `if self._result is None: return <empty>` guards from `parent_grain_id_map`, `variant_id_map`, `fit_quality_map`, `parent_ipf_map`, `parent_boundary_map`.
+
+2. **`_empty_for_dtype` helper in base.py** — Derives empty array from `(shape, dtype)`: rgb→zeros(shape,3), discrete→zeros(shape,float32), scalar→full(shape,nan). Single source of truth for empty map returns.
+
+### Occurrence counts after
+
+- `self._result is None` in ebsd_map.py: 0 (was 5)
+- `self._result is None` in base.py decorator: 1 (the single source of truth)
+- `self.is_sparse` in ebsd_map.py: 7 (unchanged — each is a different guard with different behavior)
+- `self._to_grid` in ebsd_map.py: 12 (utility method calls, acceptable)
+- `self._primary_symmetry_quats()`: 7 call sites (accessor pattern, acceptable)
+
+### Files changed
+
+- `core/base.py`: +15 lines (added `import functools`, `_empty_for_dtype`, wrapping logic in decorator)
+- `core/ebsd_map.py`: −10 lines (removed 5× two-line guard blocks)
+
+**Net: ~5 lines added (15 new − 10 removed), 5 duplicated guard patterns eliminated**
+
+### Analysis: not extracted (and why)
+
+- `self.is_sparse` guards (7×): each has different return type/value (zeros, ones, bool, raise). Only 2 are identical (kam + misorientation scalar zeros) — below max-3 threshold for extraction.
+- `self._primary_symmetry_quats()` (7×): single-owner accessor, fast lookup. Calls are necessary per-method — not logic duplication.
+- `MisorientationOps.neighbors(self.quaternions, self.shape, sym_quats)` (3×): exactly at max-3, each call site uses results differently.
+- `rows, cols = self.shape` (6×): destructuring assignment, not extractable.
+- `main_window.py` hover/click pixel info (~7 shared lines, 2×): below max-3 threshold.
+- `io/base.py`: no duplication found — loaders are data-only, all logic in base.
+
 ## 2026-04-23: Third pass — hardcoded colors, redundant model_config, Grain.row_col
 
 ### Changes made
@@ -68,10 +100,10 @@
 ### Files changed
 
 - `ui/theme.py`: +24 lines (added constants + 2 helpers)
-- `ui/widgets/stats_panel.py`: −23 lines (removed constants, _style_ax, Figure boilerplate)
+- `ui/widgets/stats_panel.py`: −23 lines (removed constants, \_style_ax, Figure boilerplate)
 - `ui/widgets/pole_figure.py`: −6 lines (removed constants, Figure boilerplate)
 - `ui/widgets/map_viewer.py`: +12 lines (meta.dtype lookup, meta.colormap usage)
-- `core/base.py`: +22 lines (expanded _MapPropertyMeta, richer decorator)
+- `core/base.py`: +22 lines (expanded \_MapPropertyMeta, richer decorator)
 - `core/ebsd_map.py`: +18 lines (metadata on all 18 map_property decorators)
 
 **Net: ~27 lines added** (metadata enrichment is additive by nature — new capabilities, not just dedup)
