@@ -25,8 +25,8 @@ def phase_colormap(phase_ids: np.ndarray, phases: list[PhaseConfig]) -> np.ndarr
     n = len(phase_ids)
     colors = np.zeros((n, 3), dtype=np.float32)
 
-    for i, phase in enumerate(phases):
-        mask = phase_ids == i
+    for phase in phases:
+        mask = phase_ids == phase.phase_id
         rgb = _hex_to_rgb(phase.color)
         colors[mask] = rgb
 

@@ -54,7 +54,7 @@ class PhasePanel(QWidget):
     def _refresh_list(self):
         self._list.clear()
         for idx, phase in enumerate(self._phases):
-            pix_count = self._phase_pixel_counts.get(idx, 0)
+            pix_count = self._phase_pixel_counts.get(phase.phase_id, 0)
             vol_frac = pix_count / self._total_pixels * 100 if self._total_pixels > 0 else 0
 
             swatch = QPixmap(14, 14)
@@ -75,7 +75,7 @@ class PhasePanel(QWidget):
         info = phase.to_dict_display()
         lines = [f"Crystal family: {phase.family.value}"]
         lines.extend(f"{k}: {v}" for k, v in info.items())
-        pix_count = self._phase_pixel_counts.get(row, 0)
+        pix_count = self._phase_pixel_counts.get(phase.phase_id, 0)
         if self._total_pixels > 0:
             lines.append(f"Volume fraction: {pix_count / self._total_pixels * 100:.1f}% ({pix_count} px)")
         self._detail_label.setText("\n".join(lines))

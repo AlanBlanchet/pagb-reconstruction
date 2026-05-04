@@ -100,10 +100,17 @@ def extract_phases(xmap: CrystalMap) -> list[PhaseConfig]:
                 family=family,
                 point_group=pg,
                 lattice=lp,
-                color=getattr(phase, "color", None) or "#808080",
+                color=_extract_hex_color(getattr(phase, "color", None)),
+                phase_id=phase_id,
             )
         )
     return phases
+
+
+def _extract_hex_color(color) -> str:
+    if isinstance(color, str) and color.startswith("#") and len(color) == 7:
+        return color
+    return "#808080"
 
 
 def _lattice_from_structure(lattice) -> LatticeParams:

@@ -5,6 +5,7 @@ from pagb_reconstruction.core.crystal import CrystalFamily, LatticeParams
 class PhaseConfig(CrystallographicEntity):
     name: str
     color: str = "#808080"
+    phase_id: int = 0
     space_group: int | None = None
 
     @classmethod

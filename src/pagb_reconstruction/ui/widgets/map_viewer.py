@@ -408,11 +408,11 @@ class MapViewer(QWidget):
         euler = self._ebsd_map.crystal_map.rotations.to_euler(degrees=True)
         phi1, Phi, phi2 = euler[flat_idx]
         phase_id = int(self._ebsd_map.phase_ids[flat_idx])
-        phase_name = (
-            self._ebsd_map.phases[phase_id].name
-            if phase_id < len(self._ebsd_map.phases)
-            else "?"
-        )
+        phase_name = "?"
+        for p in self._ebsd_map.phases:
+            if p.phase_id == phase_id:
+                phase_name = p.name
+                break
 
         grain_id = -1
         if self._ebsd_map.grains:
