@@ -1,9 +1,6 @@
-import types
 from typing import Literal, get_args, get_origin
 
 from PySide6.QtCore import (
-    QEasingCurve,
-    QPropertyAnimation,
     Qt,
     Signal,
 )
@@ -22,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from pagb_reconstruction.core.reconstruction import ReconstructionConfig
-from pagb_reconstruction.ui.model_widget import ModelFormWidget, _unwrap_optional
+from pagb_reconstruction.ui.model_widget import _unwrap_optional
 from pagb_reconstruction.ui.theme import active_theme
 
 _PRESETS = {
@@ -109,7 +106,14 @@ class ToggleSwitch(QWidget):
 class SliderSpinCombo(QWidget):
     value_changed = Signal(float)
 
-    def __init__(self, min_val: float, max_val: float, value: float, decimals: int = 2, is_int: bool = False):
+    def __init__(
+        self,
+        min_val: float,
+        max_val: float,
+        value: float,
+        decimals: int = 2,
+        is_int: bool = False,
+    ):
         super().__init__()
         self._decimals = decimals
         self._is_int = is_int
@@ -238,7 +242,9 @@ class CollapsibleCard(QWidget):
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
         self._title_label = QLabel(title)
-        self._title_label.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {accent_color};")
+        self._title_label.setStyleSheet(
+            f"font-weight: bold; font-size: 11px; color: {accent_color};"
+        )
         header_layout.addWidget(self._title_label)
         header_layout.addStretch()
         self._chevron = QLabel("\u25bc")
@@ -318,7 +324,9 @@ class ParamPanel(QWidget):
                 lbl.setFixedWidth(100)
                 row.addWidget(lbl)
 
-                widget = self._make_field_widget(field_name, annotation, field_info, value)
+                widget = self._make_field_widget(
+                    field_name, annotation, field_info, value
+                )
                 if widget:
                     row.addWidget(widget, 1)
                     self._field_widgets[field_name] = widget
@@ -331,7 +339,9 @@ class ParamPanel(QWidget):
 
             self._cards_container.addWidget(card)
 
-    def _make_field_widget(self, name: str, annotation, field_info, value) -> QWidget | None:
+    def _make_field_widget(
+        self, name: str, annotation, field_info, value
+    ) -> QWidget | None:
         annotation = _unwrap_optional(annotation)
 
         if annotation is bool:

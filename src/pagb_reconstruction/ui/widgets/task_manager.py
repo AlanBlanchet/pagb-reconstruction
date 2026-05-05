@@ -1,8 +1,7 @@
 from typing import Literal
 
-from PySide6.QtCore import QElapsedTimer, QPropertyAnimation, QTimer, Qt, Signal
+from PySide6.QtCore import QElapsedTimer, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
-    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QProgressBar,
@@ -54,20 +53,29 @@ class TaskItem(QWidget):
         self._time_label = QLabel("0s")
         self._time_label.setFixedWidth(40)
         self._time_label.setStyleSheet("font-size: 10px;")
-        self._time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._time_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         layout.addWidget(self._time_label)
 
         self._cancel_btn = QPushButton("\u2715")
         self._cancel_btn.setFixedSize(18, 18)
         self._cancel_btn.setStyleSheet("border: none; font-size: 11px; padding: 0;")
-        self._cancel_btn.clicked.connect(lambda: self.cancel_requested.emit(self._task_id))
+        self._cancel_btn.clicked.connect(
+            lambda: self.cancel_requested.emit(self._task_id)
+        )
         layout.addWidget(self._cancel_btn)
 
         self._apply_style()
 
     def _apply_style(self):
         p = active_theme()
-        colors = {"running": p.accent, "done": p.success, "error": p.error, "cancelled": p.warning}
+        colors = {
+            "running": p.accent,
+            "done": p.success,
+            "error": p.error,
+            "cancelled": p.warning,
+        }
         color = colors.get(self._status, p.accent)
         self._icon.setStyleSheet(f"color: {color}; font-size: 12px;")
 
@@ -80,7 +88,12 @@ class TaskItem(QWidget):
 
     def set_status(self, status: Literal["running", "done", "error", "cancelled"]):
         self._status = status
-        icons = {"running": "\u25cf", "done": "\u2713", "error": "\u2717", "cancelled": "\u2014"}
+        icons = {
+            "running": "\u25cf",
+            "done": "\u2713",
+            "error": "\u2717",
+            "cancelled": "\u2014",
+        }
         self._icon.setText(icons.get(status, "\u25cf"))
         self._apply_style()
         if status != "running":
@@ -117,12 +130,18 @@ class TaskManager(QWidget):
 
     def _update_style(self):
         p = active_theme()
-        r, g, b = int(p.surface_dim[1:3], 16), int(p.surface_dim[3:5], 16), int(p.surface_dim[5:7], 16)
+        r, g, b = (
+            int(p.surface_dim[1:3], 16),
+            int(p.surface_dim[3:5], 16),
+            int(p.surface_dim[5:7], 16),
+        )
         self.setStyleSheet(
             f"TaskManager {{ background: rgba({r}, {g}, {b}, 230); "
             f"border-radius: 8px; border: 1px solid {p.border}; }}"
         )
-        self._title.setStyleSheet(f"font-size: 10px; font-weight: bold; color: {p.text_muted};")
+        self._title.setStyleSheet(
+            f"font-size: 10px; font-weight: bold; color: {p.text_muted};"
+        )
 
     def submit(self, task_id: str, name: str) -> TaskItem:
         if task_id in self._tasks:
@@ -139,7 +158,11 @@ class TaskManager(QWidget):
         if item:
             item.set_progress(pct)
 
-    def complete(self, task_id: str, status: Literal["running", "done", "error", "cancelled"] = "done"):
+    def complete(
+        self,
+        task_id: str,
+        status: Literal["running", "done", "error", "cancelled"] = "done",
+    ):
         item = self._tasks.get(task_id)
         if item:
             item.set_status(status)

@@ -251,6 +251,29 @@ class EBSDMap(SpatialMap):
         return self._to_grid(self._result.fit_angles, fill=np.nan)
 
     @map_property(
+        "Fit Angle",
+        requires_result=True,
+        dtype="scalar",
+        unit="\u00b0",
+        colormap="hot",
+        category="reconstruction",
+    )
+    def fit_angle_map(self) -> np.ndarray:
+        return self._to_grid(self._result.fit_angles, fill=np.nan)
+
+    @map_property(
+        "Packet", requires_result=True, dtype="discrete", category="reconstruction"
+    )
+    def packet_map(self) -> np.ndarray:
+        return self._to_grid(self._result.packet_ids).astype(np.float32)
+
+    @map_property(
+        "Block", requires_result=True, dtype="discrete", category="reconstruction"
+    )
+    def block_map(self) -> np.ndarray:
+        return self._to_grid(self._result.block_ids).astype(np.float32)
+
+    @map_property(
         "Parent IPF", requires_result=True, dtype="rgb", category="reconstruction"
     )
     def parent_ipf_map(self) -> np.ndarray:

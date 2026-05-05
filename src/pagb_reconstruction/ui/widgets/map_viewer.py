@@ -3,7 +3,7 @@ import logging
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QKeySequence, QShortcut
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 class MapViewer(QWidget):
     pixel_hovered = Signal(int, int)
     pixel_clicked = Signal(int, int)
+    roi_changed = Signal(int, int, int, int)
 
     def __init__(self):
         super().__init__()
@@ -52,6 +53,9 @@ class MapViewer(QWidget):
         self._line_mode = False
         self._line_start: tuple[int, int] | None = None
         self._line_item: pg.PlotDataItem | None = None
+        self._split_mode = False
+        self._roi_active = False
+        self._roi_item: pg.RectROI | None = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -104,6 +108,20 @@ class MapViewer(QWidget):
         self._colorbar_plot.addItem(self._colorbar_label_min)
         self._colorbar_plot.addItem(self._colorbar_label_max)
         self._colorbar_plot.setVisible(False)
+
+        self._split_plot = self._graphics_view.addPlot()
+        self._split_plot.setAspectLocked(True)
+        self._split_plot.invertY(True)
+        self._split_image_item = pg.ImageItem()
+        self._split_plot.addItem(self._split_image_item)
+        self._split_plot.hideAxis("left")
+        self._split_plot.hideAxis("bottom")
+        self._split_plot.setXLink(self._plot)
+        self._split_plot.setYLink(self._plot)
+        self._split_plot.setVisible(False)
+
+        self._split_combo = QComboBox()
+        self._split_combo.currentTextChanged.connect(self._update_split_display)
 
         self._scalebar_item = pg.ScaleBar(size=10, suffix="um")
         self._scalebar_item.setParentItem(self._plot.vb)
@@ -165,11 +183,15 @@ class MapViewer(QWidget):
     def _populate_combo(self):
         self._display_combo.blockSignals(True)
         self._display_combo.clear()
+        self._split_combo.blockSignals(True)
+        self._split_combo.clear()
         for meta in EBSDMap.registered_map_properties():
             if meta.requires_result and self._result is None:
                 continue
             self._display_combo.addItem(meta.name)
+            self._split_combo.addItem(meta.name)
         self._display_combo.blockSignals(False)
+        self._split_combo.blockSignals(False)
 
     def set_ebsd_map(self, ebsd_map: EBSDMap):
         self._ebsd_map = ebsd_map
@@ -497,9 +519,13 @@ class MapViewer(QWidget):
             self._line_start = (x, y)
             self._clear_line()
             self._line_item = self._plot.plot(
-                [x + 0.5], [y + 0.5],
-                pen=pg.mkPen(active_theme().warning, width=2, style=Qt.PenStyle.DashLine),
-                symbol="o", symbolSize=6,
+                [x + 0.5],
+                [y + 0.5],
+                pen=pg.mkPen(
+                    active_theme().warning, width=2, style=Qt.PenStyle.DashLine
+                ),
+                symbol="o",
+                symbolSize=6,
             )
         else:
             x0, y0 = self._line_start
@@ -526,10 +552,17 @@ class MapViewer(QWidget):
             idx_a = ys[i] * cols + xs[i]
             idx_b = ys[i + 1] * cols + xs[i + 1]
             if 0 <= idx_a < len(quats) and 0 <= idx_b < len(quats):
-                angles[i] = MisorientationOps.pair(quats[idx_a], quats[idx_b], sym_quats)
+                angles[i] = MisorientationOps.pair(
+                    quats[idx_a], quats[idx_b], sym_quats
+                )
 
-        distances = np.arange(n_points - 1) * step * np.sqrt(
-            ((x1 - x0) / max(n_points - 1, 1)) ** 2 + ((y1 - y0) / max(n_points - 1, 1)) ** 2
+        distances = (
+            np.arange(n_points - 1)
+            * step
+            * np.sqrt(
+                ((x1 - x0) / max(n_points - 1, 1)) ** 2
+                + ((y1 - y0) / max(n_points - 1, 1)) ** 2
+            )
         )
 
         p = active_theme()
@@ -546,3 +579,79 @@ class MapViewer(QWidget):
         plot_widget.plot(distances, angles, pen=pg.mkPen(p.accent, width=2))
         layout.addWidget(plot_widget)
         dialog.show()
+
+    def toggle_split_mode(self):
+        self._split_mode = not self._split_mode
+        self._split_plot.setVisible(self._split_mode)
+        if self._split_mode:
+            self._split_combo.setVisible(True)
+            self._update_split_display()
+        else:
+            self._split_combo.setVisible(False)
+
+    def set_split_visible(self, visible: bool):
+        self._split_mode = visible
+        self._split_plot.setVisible(visible)
+        self._split_combo.setVisible(visible)
+        if visible:
+            self._update_split_display()
+
+    def _update_split_display(self):
+        if not self._split_mode or self._ebsd_map is None:
+            return
+        mode = self._split_combo.currentText()
+        if not mode:
+            return
+        try:
+            image = self._ebsd_map.compute_map_property(mode)
+        except KeyError:
+            return
+        meta = self._find_meta(mode)
+        is_rgb = meta.dtype == "rgb" if meta else (image.ndim == 3 and image.shape[2] in (3, 4))
+        if is_rgb:
+            self._split_image_item.setImage(image, autoLevels=True)
+            self._split_image_item.setLookupTable(None)
+        else:
+            cmap_name = meta.colormap if meta and meta.colormap else self._colormap_name
+            cmap = pg.colormap.get(cmap_name, source="matplotlib")
+            lut = cmap.getLookupTable(nPts=256)
+            self._split_image_item.setImage(image, autoLevels=True)
+            self._split_image_item.setLookupTable(lut)
+
+    def toggle_roi_mode(self):
+        self._roi_active = not self._roi_active
+        if self._roi_active:
+            if self._roi_item is None:
+                rows, cols = (100, 100)
+                if self._ebsd_map:
+                    rows, cols = self._ebsd_map.shape
+                w, h = cols // 4, rows // 4
+                x, y = cols // 4, rows // 4
+                self._roi_item = pg.RectROI(
+                    [x, y], [w, h], pen=pg.mkPen(ACCENT, width=2)
+                )
+                self._roi_item.sigRegionChanged.connect(self._on_roi_changed)
+                self._plot.addItem(self._roi_item)
+            else:
+                self._roi_item.setVisible(True)
+        else:
+            if self._roi_item is not None:
+                self._roi_item.setVisible(False)
+
+    def clear_roi(self):
+        if self._roi_item is not None:
+            self._plot.removeItem(self._roi_item)
+            self._roi_item = None
+        self._roi_active = False
+
+    def get_roi_bounds(self) -> tuple[int, int, int, int] | None:
+        if self._roi_item is None:
+            return None
+        pos = self._roi_item.pos()
+        size = self._roi_item.size()
+        return (int(pos.x()), int(pos.y()), int(size.x()), int(size.y()))
+
+    def _on_roi_changed(self):
+        bounds = self.get_roi_bounds()
+        if bounds:
+            self.roi_changed.emit(*bounds)

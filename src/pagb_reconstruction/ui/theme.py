@@ -112,7 +112,15 @@ TEXT_DISABLED = _active.text_disabled
 
 
 def _sync_globals():
-    global DARK_BG, DARK_FG, GRID_COLOR, ACCENT, EDGE_COLOR, SURFACE_DIM, TEXT_MUTED, TEXT_DISABLED
+    global \
+        DARK_BG, \
+        DARK_FG, \
+        GRID_COLOR, \
+        ACCENT, \
+        EDGE_COLOR, \
+        SURFACE_DIM, \
+        TEXT_MUTED, \
+        TEXT_DISABLED
     DARK_BG = _active.bg
     DARK_FG = _active.fg
     GRID_COLOR = _active.border

@@ -41,7 +41,9 @@ class StatCard(QWidget):
             f"StatCard {{ background: {p.surface}; border-radius: 6px; }}"
         )
         self._label.setStyleSheet(f"font-size: 9px; color: {p.text_muted};")
-        self._value.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {p.accent};")
+        self._value.setStyleSheet(
+            f"font-size: 14px; font-weight: bold; color: {p.accent};"
+        )
 
     def set_value(self, text: str):
         self._value.setText(text)
@@ -150,7 +152,12 @@ class StatsDashboard(QWidget):
         self._chart_grid.addWidget(self._chart_fit, 1, 1)
         layout.addLayout(self._chart_grid, 1)
 
-    def update_stats(self, result: ReconstructionResult, ebsd_map: EBSDMap | None = None, elapsed: float = 0.0):
+    def update_stats(
+        self,
+        result: ReconstructionResult,
+        ebsd_map: EBSDMap | None = None,
+        elapsed: float = 0.0,
+    ):
         p = active_theme()
         parent_ids = result.parent_grain_ids
         unique_parents = np.unique(parent_ids[parent_ids >= 0])

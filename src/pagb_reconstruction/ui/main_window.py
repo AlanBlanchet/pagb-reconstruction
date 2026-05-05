@@ -357,6 +357,26 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
+        split_action = QAction("Split", self)
+        split_action.setCheckable(True)
+        split_action.toggled.connect(self._toggle_split)
+        toolbar.addAction(split_action)
+
+        self._map_viewer._split_combo.setToolTip("Split display mode")
+        self._map_viewer._split_combo.setVisible(False)
+        toolbar.addWidget(self._map_viewer._split_combo)
+
+        roi_action = QAction("ROI", self)
+        roi_action.setCheckable(True)
+        roi_action.toggled.connect(self._toggle_roi)
+        toolbar.addAction(roi_action)
+
+        clear_roi_action = QAction("Clear ROI", self)
+        clear_roi_action.triggered.connect(self._clear_roi)
+        toolbar.addAction(clear_roi_action)
+
+        toolbar.addSeparator()
+
         reset_action = QAction("Reset", self)
         reset_action.triggered.connect(self._reset)
         toolbar.addAction(reset_action)
@@ -508,6 +528,7 @@ class MainWindow(QMainWindow):
             self._ebsd_map = load_ebsd(path)
             self._add_recent(path)
             self._map_viewer.set_ebsd_map(self._ebsd_map)
+            self._or_panel.set_ebsd_map(self._ebsd_map)
             self._phase_panel.set_phases(
                 self._ebsd_map.phases, self._ebsd_map.phase_ids
             )
@@ -576,6 +597,20 @@ class MainWindow(QMainWindow):
             f"  Fit quintiles: Q25={q[0]:.2f} Q50={q[1]:.2f} "
             f"Q75={q[2]:.2f} Q90={q[3]:.2f} Q95={q[4]:.2f}"
         )
+
+    def _toggle_split(self, checked: bool):
+        self._map_viewer.set_split_visible(checked)
+
+    def _toggle_roi(self, checked: bool):
+        if checked:
+            if not self._map_viewer._roi_active:
+                self._map_viewer.toggle_roi_mode()
+        else:
+            if self._map_viewer._roi_active:
+                self._map_viewer.toggle_roi_mode()
+
+    def _clear_roi(self):
+        self._map_viewer.clear_roi()
 
     def _reset(self):
         self._ebsd_map = None
