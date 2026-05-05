@@ -1,3 +1,5 @@
+import warnings
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QPushButton, QWidget
 
@@ -52,8 +54,6 @@ class UpdateBar(QWidget):
         self._download_url = ""
 
     def _safe_disconnect(self):
-        import warnings
-
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
             try:

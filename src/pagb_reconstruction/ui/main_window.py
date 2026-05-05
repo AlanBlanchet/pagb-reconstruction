@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+from orix.quaternion import Rotation
 from PySide6.QtCore import QSettings, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -556,8 +557,6 @@ class MainWindow(QMainWindow):
         if not path:
             return
         try:
-            from orix.quaternion import Rotation
-
             rot = Rotation(self._result.parent_orientations.reshape(-1, 4))
             parent_euler = rot.to_euler()
             cm = self._ebsd_map.crystal_map

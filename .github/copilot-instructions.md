@@ -30,6 +30,12 @@ Prior Austenite Grain Boundary reconstruction from EBSD data. PySide6 desktop ap
 - `utils/` — Numba-accelerated math, array helpers, IPF coloring.
 - `utils/array_ops.py` — Pure-numpy array utilities (label remapping, boundary detection, hemisphere alignment).
 
+## Imports (MANDATORY)
+
+- ALL imports at module level (top of file). No local/lazy imports inside functions, methods, or classes.
+- ONLY exception: `core/` importing from `ui/` (Qt/circular-dependency avoidance). These are the ONLY permitted lazy imports.
+- This applies to everything: `logging`, `warnings`, `packaging.version`, stdlib, third-party, internal — all top-level.
+
 ## Class Hierarchy
 
 - `CrystalSystem` (family + point_group + lattice) → `PhaseConfig` (name, color, space_group)
@@ -53,7 +59,7 @@ Prior Austenite Grain Boundary reconstruction from EBSD data. PySide6 desktop ap
 - IO loaders: subclass `EBSDLoader`, declare `supported_extensions`, call `register_loader` at import. `load_ebsd(path)` dispatches by extension.
 - orix API: `CrystalMap` for spatial data, `Orientation`/`Symmetry` for crystallography, `get_point_group(space_group_number)` for symmetry lookup.
 - Numba: bare `@njit` functions for kernels, wrapped by facade classes (`QuaternionOps`, `MisorientationOps`, `MathOps`) that expose them as `@staticmethod`. Callers use the class API, not raw functions.
-- Qt constraint: `core/` never imports Qt at module level. Lazy imports inside method bodies only.
+- Qt constraint: `core/` may lazy-import from `ui/` or Qt inside method bodies (see Imports section above). This is the ONLY exception to top-level imports.
 - Async compute: `ComputeWorker(fn, *args)` QThread for any off-thread work. Signals: `finished(object)`, `error(str)`.
 - Constants: Pydantic models in `core/constants.py` for numeric defaults — instantiate to get defaults, override fields as needed.
 - Markov clustering: implemented from scratch in `core/graph.py`, no external MCL library.

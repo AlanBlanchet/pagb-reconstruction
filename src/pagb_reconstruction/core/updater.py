@@ -7,7 +7,10 @@ import tempfile
 import urllib.request
 from dataclasses import dataclass
 
+from packaging.version import Version
 from PySide6.QtCore import QThread, Signal
+
+from pagb_reconstruction import __version__
 
 REPO = "AlanBlanchet/pagb-reconstruction"
 
@@ -25,9 +28,6 @@ class UpdateChecker(QThread):
 
     def run(self):
         try:
-            from pagb_reconstruction import __version__
-            from packaging.version import Version
-
             local_ver = Version(__version__)
             if local_ver.is_devrelease or local_ver.is_prerelease:
                 return

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from pagb_reconstruction.core.reconstruction import ReconstructionConfig
+from pagb_reconstruction.ui.model_widget import ModelFormWidget
 
 _PRESETS = {
     "Default": ReconstructionConfig(),
@@ -87,8 +88,6 @@ class ParamPanel(QWidget):
         old_form.deleteLater()
 
     def _apply_tooltips(self):
-        from pagb_reconstruction.ui.model_widget import ModelFormWidget
-
         if not isinstance(self._form, ModelFormWidget):
             return
         for name, widget in self._form._field_widgets.items():

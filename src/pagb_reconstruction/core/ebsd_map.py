@@ -18,6 +18,7 @@ from pagb_reconstruction.core.constants import (
 from pagb_reconstruction.core.grain import Grain, detect_grains
 from pagb_reconstruction.core.phase import PhaseConfig
 from pagb_reconstruction.utils.array_ops import boundaries_from_2d
+from pagb_reconstruction.utils.colormap import DEFAULT_IPF_DIRECTION, ipf_colors
 from pagb_reconstruction.utils.math_ops import MisorientationOps
 
 
@@ -159,12 +160,9 @@ class EBSDMap(SpatialMap):
         return self._ipf_map(Vector3d.yvector())
 
     def ipf_map(self, direction: Vector3d | None = None) -> np.ndarray:
-        from pagb_reconstruction.utils.colormap import DEFAULT_IPF_DIRECTION
-
         return self._ipf_map(direction or DEFAULT_IPF_DIRECTION)
 
     def _ipf_map(self, direction: Vector3d) -> np.ndarray:
-        from pagb_reconstruction.utils.colormap import ipf_colors
 
         n_pixels = self.crystal_map.size
         rgb = np.zeros((n_pixels, 3))

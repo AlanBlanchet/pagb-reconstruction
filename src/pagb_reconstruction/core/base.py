@@ -1,8 +1,10 @@
 import functools
+import logging
 from collections.abc import Callable
 from typing import Any, ClassVar, Literal
 
 import numpy as np
+from orix.quaternion.symmetry import get_point_group
 from pydantic import BaseModel, ConfigDict
 
 from pagb_reconstruction.core.crystal import (
@@ -59,8 +61,6 @@ class CrystallographicEntity(Displayable):
 
     @property
     def symmetry(self):
-        from orix.quaternion.symmetry import get_point_group
-
         sg_num = _POINT_GROUP_TO_SPACE_GROUP.get(self.point_group, 225)
         return get_point_group(sg_num)
 
@@ -152,8 +152,6 @@ class SpatialMap(Displayable):
                     try:
                         return getattr(self, attr_name)(**kwargs)
                     except Exception as e:
-                        import logging
-
                         logging.getLogger(__name__).error(
                             "Error computing %s: %s", name, e
                         )

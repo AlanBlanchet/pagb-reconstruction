@@ -1,5 +1,8 @@
 import numpy as np
+from orix.quaternion import Orientation
+from orix.vector import Vector3d
 from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QVBoxLayout, QWidget
+from scipy.stats import gaussian_kde
 
 from pagb_reconstruction.ui.theme import ACCENT, DARK_BG, DARK_FG, GRID_COLOR, create_dark_figure
 
@@ -50,9 +53,6 @@ class PoleFigureWidget(QWidget):
         )
 
         if self._orientations is not None and len(self._orientations) > 0:
-            from orix.quaternion import Orientation
-            from orix.vector import Vector3d
-
             hkl_map = {"(001)": (0, 0, 1), "(011)": (0, 1, 1), "(111)": (1, 1, 1)}
             hkl = hkl_map.get(self._hkl_combo.currentText(), (0, 0, 1))
             pole = Vector3d(hkl)
@@ -69,7 +69,6 @@ class PoleFigureWidget(QWidget):
             polar = polar[upper]
 
             if self._contour_cb.isChecked() and len(azimuth) > 10:
-                from scipy.stats import gaussian_kde
                 x = polar * np.cos(azimuth)
                 y = polar * np.sin(azimuth)
                 try:

@@ -3,6 +3,7 @@ from orix.quaternion import Orientation, Symmetry
 from orix.vector import Vector3d
 
 from pagb_reconstruction.core.base import Displayable
+from pagb_reconstruction.utils.colormap import ipf_colors
 
 
 class OrientationData(Displayable):
@@ -41,6 +42,4 @@ class OrientationData(Displayable):
         return mori_fund.angle.data * (180.0 / np.pi)
 
     def ipf_color(self, direction: Vector3d | None = None) -> np.ndarray:
-        from pagb_reconstruction.utils.colormap import ipf_colors
-
         return ipf_colors(self.orientations, direction)
