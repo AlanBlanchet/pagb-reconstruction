@@ -25,15 +25,19 @@ class UpdateChecker(QThread):
 
     def run(self):
         try:
+            from pagb_reconstruction import __version__
+            from packaging.version import Version
+
+            local_ver = Version(__version__)
+            if local_ver.is_devrelease or local_ver.is_prerelease:
+                return
+
             url = f"https://api.github.com/repos/{REPO}/releases/latest"
             with urllib.request.urlopen(url, timeout=5) as resp:  # noqa: S310
                 data = json.loads(resp.read())
             remote = data["tag_name"].lstrip("v")
-            from pagb_reconstruction import __version__
-            from packaging.version import Version
 
-            local = Version(__version__).base_version
-            if Version(remote) > Version(local):
+            if Version(remote) > local_ver:
                 download_url = _find_asset_url(data.get("assets", []))
                 info = UpdateInfo(
                     version=remote,
