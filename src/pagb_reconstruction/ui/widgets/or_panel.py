@@ -1,6 +1,6 @@
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -154,7 +154,7 @@ class ORPanel(QWidget):
                 line = pg.InfiniteLine(
                     pos=angle,
                     angle=90,
-                    pen=pg.mkPen("#f38ba8", width=1.5, style=2),
+                    pen=pg.mkPen("#f38ba8", width=1.5, style=Qt.PenStyle.DashLine),
                 )
                 self._hist_plot.addItem(line)
                 self._peak_lines.append(line)
