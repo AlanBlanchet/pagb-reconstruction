@@ -4,7 +4,6 @@ from pagb_reconstruction.ui.widgets.phase_panel import PhasePanel
 from pagb_reconstruction.ui.widgets.or_panel import ORPanel
 from pagb_reconstruction.ui.widgets.reconstruction_panel import ReconstructionPanel
 from pagb_reconstruction.ui.widgets.pole_figure import PoleFigureWidget
-from pagb_reconstruction.ui.widgets.stats_panel import StatsPanel
 
 __all__ = [
     "MapViewer",
@@ -13,5 +12,4 @@ __all__ = [
     "ORPanel",
     "ReconstructionPanel",
     "PoleFigureWidget",
-    "StatsPanel",
 ]

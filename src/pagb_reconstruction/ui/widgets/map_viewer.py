@@ -607,7 +607,11 @@ class MapViewer(QWidget):
         except KeyError:
             return
         meta = self._find_meta(mode)
-        is_rgb = meta.dtype == "rgb" if meta else (image.ndim == 3 and image.shape[2] in (3, 4))
+        is_rgb = (
+            meta.dtype == "rgb"
+            if meta
+            else (image.ndim == 3 and image.shape[2] in (3, 4))
+        )
         if is_rgb:
             self._split_image_item.setImage(image, autoLevels=True)
             self._split_image_item.setLookupTable(None)

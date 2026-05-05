@@ -91,11 +91,13 @@ class ORPanel(QWidget):
         angle_rad = np.arccos(np.clip((np.trace(R) - 1) / 2, -1, 1))
         angle_deg = np.degrees(angle_rad)
         if angle_rad > 1e-6:
-            axis = np.array([
-                R[2, 1] - R[1, 2],
-                R[0, 2] - R[2, 0],
-                R[1, 0] - R[0, 1],
-            ])
+            axis = np.array(
+                [
+                    R[2, 1] - R[1, 2],
+                    R[0, 2] - R[2, 0],
+                    R[1, 0] - R[0, 1],
+                ]
+            )
             axis = axis / np.linalg.norm(axis)
             self._axis_label.setText(f"[{axis[0]:.3f}, {axis[1]:.3f}, {axis[2]:.3f}]")
         else:
@@ -104,10 +106,14 @@ class ORPanel(QWidget):
 
         pp = or_obj.parallel_planes_parent
         dp = or_obj.parallel_dirs_parent
-        self._miller_parent_label.setText(f"({pp[0]}{pp[1]}{pp[2]}) // [{dp[0]}{dp[1]}{dp[2]}]")
+        self._miller_parent_label.setText(
+            f"({pp[0]}{pp[1]}{pp[2]}) // [{dp[0]}{dp[1]}{dp[2]}]"
+        )
         pc = or_obj.parallel_planes_child
         dc = or_obj.parallel_dirs_child
-        self._miller_child_label.setText(f"({pc[0]}{pc[1]}{pc[2]}) // [{dc[0]}{dc[1]}{dc[2]}]")
+        self._miller_child_label.setText(
+            f"({pc[0]}{pc[1]}{pc[2]}) // [{dc[0]}{dc[1]}{dc[2]}]"
+        )
 
         n_v = or_obj.n_variants
         self._variant_count_label.setText(f"{n_v} variants")
@@ -131,9 +137,12 @@ class ORPanel(QWidget):
             hist, bin_edges = np.histogram(angles, bins=90, range=(0, 90))
             bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
             self._hist_plot.plot(
-                bin_centers, hist, stepMode=False,
+                bin_centers,
+                hist,
+                stepMode=False,
                 pen=pg.mkPen("#cdd6f4", width=1.5),
-                fillLevel=0, fillBrush=(205, 214, 244, 40),
+                fillLevel=0,
+                fillBrush=(205, 214, 244, 40),
             )
 
         name = self._or_combo.currentText()
@@ -143,7 +152,8 @@ class ORPanel(QWidget):
             unique_peaks = np.unique(np.round(peak_angles, 1))
             for angle in unique_peaks:
                 line = pg.InfiniteLine(
-                    pos=angle, angle=90,
+                    pos=angle,
+                    angle=90,
                     pen=pg.mkPen("#f38ba8", width=1.5, style=2),
                 )
                 self._hist_plot.addItem(line)

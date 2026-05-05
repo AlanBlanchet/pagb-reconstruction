@@ -27,6 +27,8 @@ Prior Austenite Grain Boundary reconstruction from EBSD data. PySide6 desktop ap
 - `ui/` — PySide6 + pyqtgraph + qdarktheme. Dock widgets tabified by area.
 - `ui/widgets/compute_worker.py` — Generic `ComputeWorker(QThread)` for running any callable off-UI-thread.
 - `ui/widgets/update_bar.py` — In-app update notification bar.
+- `ui/widgets/task_manager.py` — TaskManager overlay widget (top-right progress for all computations).
+- `ui/widgets/stats_dashboard.py` — StatsDashboard with StatCards + pyqtgraph ChartWidgets.
 - `utils/` — Numba-accelerated math, array helpers, IPF coloring.
 - `utils/array_ops.py` — Pure-numpy array utilities (label remapping, boundary detection, hemisphere alignment).
 
@@ -42,8 +44,9 @@ Prior Austenite Grain Boundary reconstruction from EBSD data. PySide6 desktop ap
 - `OrientationRelationship` — OR definition with classmethod presets (KS, NW, GT, Pitsch, Bain) in `OR_PRESETS` dict
 - `EBSDMap` wraps orix `CrystalMap` + phases + grains + parent_map
 - `Grain` — pixel indices, mean quaternion, neighbors
-- `ReconstructionConfig` / `ReconstructionEngine` / `ReconstructionResult` — pipeline config, execution, output
+- `ReconstructionConfig` / `ReconstructionEngine` / `ReconstructionResult` — pipeline config, execution, output. `ReconstructionResult` includes `packet_ids`, `block_ids` fields.
 - `VariantAnalyzer` — variant/packet/Bain group assignment
+- `StatsDashboard` → `StatCard` + `ChartWidget` (pyqtgraph-based)
 - `OrientationData` — quaternion array + symmetry, wraps orix `Orientation`
 
 ## Planned Hierarchy (not yet implemented)
@@ -64,6 +67,8 @@ Prior Austenite Grain Boundary reconstruction from EBSD data. PySide6 desktop ap
 - Constants: Pydantic models in `core/constants.py` for numeric defaults — instantiate to get defaults, override fields as needed.
 - Markov clustering: implemented from scratch in `core/graph.py`, no external MCL library.
 - `_POINT_GROUP_TO_SPACE_GROUP` in `crystal.py` maps point group string → space group int for orix lookup.
+- Theme system: `theme.py` has `ThemePalette` dataclass + `THEMES` registry + `active_theme()` / `set_theme()`. Colors reference `active_theme()`, never hardcoded constants.
+- Task manager: `TaskManager.instance()` singleton. Use `task_manager.add_task(name)` → returns `TaskHandle` with `.set_progress(pct)` / `.complete()` / `.fail(msg)`.
 
 ## Dependencies
 

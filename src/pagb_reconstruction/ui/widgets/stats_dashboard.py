@@ -4,13 +4,16 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from pagb_reconstruction.core.ebsd_map import EBSDMap
+from pagb_reconstruction.core.grain_metrics import GrainMetrics
 from pagb_reconstruction.core.reconstruction import ReconstructionResult
 from pagb_reconstruction.ui.theme import active_theme
 
@@ -118,6 +121,9 @@ class ChartWidget(QWidget):
 class StatsDashboard(QWidget):
     def __init__(self):
         super().__init__()
+        self._ebsd_map: EBSDMap | None = None
+        self._result: ReconstructionResult | None = None
+        self._grain_metrics = GrainMetrics()
         self._setup_ui()
 
     def _setup_ui(self):
@@ -137,6 +143,22 @@ class StatsDashboard(QWidget):
         cards_row.addWidget(self._card_time)
         cards_row.addStretch()
         layout.addLayout(cards_row)
+
+        metrics_group = QGroupBox("Grain Size Measurement")
+        metrics_layout = QVBoxLayout(metrics_group)
+        self._metrics_form = self._grain_metrics.to_widget()
+        metrics_layout.addWidget(self._metrics_form)
+        btn_row = QHBoxLayout()
+        self._measure_btn = QPushButton("Measure")
+        self._measure_btn.clicked.connect(self._run_measurement)
+        self._measure_btn.setEnabled(False)
+        btn_row.addWidget(self._measure_btn)
+        btn_row.addStretch()
+        metrics_layout.addLayout(btn_row)
+        self._metrics_label = QLabel("")
+        self._metrics_label.setWordWrap(True)
+        metrics_layout.addWidget(self._metrics_label)
+        layout.addWidget(metrics_group)
 
         self._chart_grid = QGridLayout()
         self._chart_grid.setSpacing(4)
@@ -158,6 +180,10 @@ class StatsDashboard(QWidget):
         ebsd_map: EBSDMap | None = None,
         elapsed: float = 0.0,
     ):
+        self._result = result
+        self._ebsd_map = ebsd_map
+        self._measure_btn.setEnabled(result is not None)
+
         p = active_theme()
         parent_ids = result.parent_grain_ids
         unique_parents = np.unique(parent_ids[parent_ids >= 0])
@@ -172,11 +198,27 @@ class StatsDashboard(QWidget):
         self._card_recon.set_value(f"{pct_recon:.1f}%")
         self._card_time.set_value(f"{elapsed:.1f}s" if elapsed > 0 else "-")
 
+        self._run_measurement()
+
         sizes = np.array([int(np.sum(parent_ids == pid)) for pid in unique_parents])
         self._plot_grain_size(sizes, p)
         self._plot_misorientation(fit_valid, p)
         self._plot_variants(result, p)
         self._plot_fit_angles(fit_valid, p)
+
+    def _run_measurement(self):
+        if self._result is None or self._ebsd_map is None:
+            return
+        self._grain_metrics = self._metrics_form.to_model()
+        grain_map = self._result.parent_grain_ids.reshape(self._ebsd_map.shape)
+        step = float(self._ebsd_map.step_size[0])
+        gr = self._grain_metrics.measure(grain_map, step_size=step)
+        self._metrics_label.setText(
+            f"Mean intercept: {gr.mean_intercept_um:.2f} \u00b5m\n"
+            f"ASTM grain size #: {gr.astm_grain_size_number:.1f}\n"
+            f"Grain count: {gr.grain_count}\n"
+            f"Method: {gr.method}"
+        )
 
     def _plot_grain_size(self, sizes: np.ndarray, p):
         self._chart_grain_size.clear()

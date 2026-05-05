@@ -34,7 +34,6 @@ from pagb_reconstruction.ui.widgets.phase_panel import PhasePanel
 from pagb_reconstruction.ui.widgets.pole_figure import PoleFigureWidget
 from pagb_reconstruction.ui.widgets.reconstruction_panel import ReconstructionPanel
 from pagb_reconstruction.ui.widgets.stats_dashboard import StatsDashboard
-from pagb_reconstruction.ui.widgets.stats_panel import StatsPanel
 from pagb_reconstruction.ui.widgets.task_manager import TaskManager
 from pagb_reconstruction.ui.widgets.update_bar import UpdateBar
 
@@ -78,7 +77,6 @@ class MainWindow(QMainWindow):
         self._phase_panel = PhasePanel()
         self._or_panel = ORPanel()
         self._reconstruction_panel = ReconstructionPanel()
-        self._stats_panel = StatsPanel()
         self._stats_dashboard = StatsDashboard()
         self._pole_figure = PoleFigureWidget()
 
@@ -144,15 +142,9 @@ class MainWindow(QMainWindow):
             Qt.DockWidgetArea.BottomDockWidgetArea,
             bottom_min,
         )
-        dock_dashboard = self._add_dock(
-            "Dashboard",
-            self._stats_dashboard,
-            Qt.DockWidgetArea.BottomDockWidgetArea,
-            bottom_min,
-        )
         dock_stats = self._add_dock(
             "Statistics",
-            self._stats_panel,
+            self._stats_dashboard,
             Qt.DockWidgetArea.BottomDockWidgetArea,
             bottom_min,
         )
@@ -169,8 +161,7 @@ class MainWindow(QMainWindow):
             bottom_min,
         )
 
-        self.tabifyDockWidget(dock_recon, dock_dashboard)
-        self.tabifyDockWidget(dock_dashboard, dock_stats)
+        self.tabifyDockWidget(dock_recon, dock_stats)
         self.tabifyDockWidget(dock_stats, dock_pole)
         self.tabifyDockWidget(dock_pole, dock_log)
         dock_recon.raise_()
@@ -181,7 +172,6 @@ class MainWindow(QMainWindow):
             "Orientation Relationship": dock_or,
             "Grain Info": dock_grain_info,
             "Reconstruction": dock_recon,
-            "Dashboard": dock_dashboard,
             "Statistics": dock_stats,
             "Pole Figure": dock_pole,
             "Log": dock_log,
@@ -574,7 +564,6 @@ class MainWindow(QMainWindow):
         elapsed = (datetime.now() - self._recon_start).total_seconds()
         self._task_manager.complete("reconstruction", "done")
         self._map_viewer.set_reconstruction_result(result)
-        self._stats_panel.update_stats(result, self._ebsd_map)
         self._stats_dashboard.update_stats(result, self._ebsd_map, elapsed=elapsed)
         n_parents = len(set(result.parent_grain_ids.tolist()))
         fit_valid = result.fit_angles[~np.isnan(result.fit_angles)]

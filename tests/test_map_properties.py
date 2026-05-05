@@ -14,7 +14,16 @@ def test_all_non_result_properties(sample_ebsd):
 
 def test_result_properties(sample_ebsd, variant_graph_result):
     sample_ebsd.set_result(variant_graph_result)
-    result_names = ["Parent IPF", "Parent + Boundaries", "Fit Quality", "Fit Angle", "Packet", "Block", "Parent Grain ID", "Variant ID"]
+    result_names = [
+        "Parent IPF",
+        "Parent + Boundaries",
+        "Fit Quality",
+        "Fit Angle",
+        "Packet",
+        "Block",
+        "Parent Grain ID",
+        "Variant ID",
+    ]
     for name in result_names:
         arr = sample_ebsd.compute_map_property(name)
         assert isinstance(arr, np.ndarray)
