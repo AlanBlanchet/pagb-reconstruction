@@ -85,6 +85,7 @@ class ReconstructionResult(Displayable):
     fit_angles: np.ndarray
     variant_ids: np.ndarray
     packet_ids: np.ndarray
+    block_ids: np.ndarray
     bain_ids: np.ndarray
     optimized_or: OrientationRelationship | None = None
 
@@ -177,7 +178,7 @@ class ReconstructionEngine:
         fit_angles = self._compute_fit_angles()
 
         _progress("Computing variants", 0.95)
-        variant_ids, packet_ids, bain_ids = self._compute_variants()
+        variant_ids, packet_ids, block_ids, bain_ids = self._compute_variants()
 
         _progress("Done", 1.0)
         return ReconstructionResult(
@@ -186,6 +187,7 @@ class ReconstructionEngine:
             fit_angles=fit_angles,
             variant_ids=variant_ids,
             packet_ids=packet_ids,
+            block_ids=block_ids,
             bain_ids=bain_ids,
             optimized_or=self._or,
         )
@@ -214,7 +216,7 @@ class ReconstructionEngine:
         self._merge_inclusions()
 
         _progress("Computing variants", 0.95)
-        variant_ids, packet_ids, bain_ids = self._compute_variants()
+        variant_ids, packet_ids, block_ids, bain_ids = self._compute_variants()
 
         fit_angles = self._compute_fit_angles()
 
@@ -225,6 +227,7 @@ class ReconstructionEngine:
             fit_angles=fit_angles,
             variant_ids=variant_ids,
             packet_ids=packet_ids,
+            block_ids=block_ids,
             bain_ids=bain_ids,
             optimized_or=self._or,
         )
@@ -423,10 +426,11 @@ class ReconstructionEngine:
                 if neighbor_labels:
                     self._parent_labels[indices] = next(iter(neighbor_labels))
 
-    def _compute_variants(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _compute_variants(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         n_pixels = self._map.quaternions.shape[0]
         variant_ids = np.zeros(n_pixels, dtype=np.int32)
         packet_ids = np.zeros(n_pixels, dtype=np.int32)
+        block_ids = np.zeros(n_pixels, dtype=np.int32)
         bain_ids = np.zeros(n_pixels, dtype=np.int32)
 
         variants = self._or.variant_quaternions()
@@ -462,9 +466,10 @@ class ReconstructionEngine:
             variants_per_packet = max(n_variants // 4, 1)
             n_bain = min(n_variants, 3)
             packet_ids[grain.pixel_indices] = best_variant // variants_per_packet
+            block_ids[grain.pixel_indices] = best_variant // 2
             bain_ids[grain.pixel_indices] = best_variant % n_bain
 
-        return variant_ids, packet_ids, bain_ids
+        return variant_ids, packet_ids, block_ids, bain_ids
 
     def _compute_fit_angles(self) -> np.ndarray:
         n_pixels = self._map.quaternions.shape[0]

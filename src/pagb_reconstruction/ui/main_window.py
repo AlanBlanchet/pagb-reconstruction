@@ -6,6 +6,7 @@ from orix.quaternion import Rotation
 from PySide6.QtCore import QSettings, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDockWidget,
@@ -25,13 +26,16 @@ from pagb_reconstruction.core.ebsd_map import EBSDMap
 from pagb_reconstruction.core.reconstruction import ReconstructionConfig
 from pagb_reconstruction.core.updater import UpdateChecker
 from pagb_reconstruction.io.base import load_ebsd
+from pagb_reconstruction.ui.theme import THEMES, set_theme
 from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
 from pagb_reconstruction.ui.widgets.or_panel import ORPanel
 from pagb_reconstruction.ui.widgets.param_panel import ParamPanel
 from pagb_reconstruction.ui.widgets.phase_panel import PhasePanel
 from pagb_reconstruction.ui.widgets.pole_figure import PoleFigureWidget
 from pagb_reconstruction.ui.widgets.reconstruction_panel import ReconstructionPanel
+from pagb_reconstruction.ui.widgets.stats_dashboard import StatsDashboard
 from pagb_reconstruction.ui.widgets.stats_panel import StatsPanel
+from pagb_reconstruction.ui.widgets.task_manager import TaskManager
 from pagb_reconstruction.ui.widgets.update_bar import UpdateBar
 
 _MAX_RECENT = 8
@@ -68,11 +72,14 @@ class MainWindow(QMainWindow):
         central_layout.addWidget(self._map_viewer, 1)
         self.setCentralWidget(central)
 
+        self._task_manager = TaskManager(central)
+
         self._param_panel = ParamPanel()
         self._phase_panel = PhasePanel()
         self._or_panel = ORPanel()
         self._reconstruction_panel = ReconstructionPanel()
         self._stats_panel = StatsPanel()
+        self._stats_dashboard = StatsDashboard()
         self._pole_figure = PoleFigureWidget()
 
         self._grain_info = QWidget()
@@ -98,7 +105,7 @@ class MainWindow(QMainWindow):
         self._log_text = QPlainTextEdit()
         self._log_text.setReadOnly(True)
 
-        right_min = (280, 200)
+        right_min = (240, 200)
         bottom_min = (400, 150)
 
         dock_params = self._add_dock(
@@ -137,6 +144,12 @@ class MainWindow(QMainWindow):
             Qt.DockWidgetArea.BottomDockWidgetArea,
             bottom_min,
         )
+        dock_dashboard = self._add_dock(
+            "Dashboard",
+            self._stats_dashboard,
+            Qt.DockWidgetArea.BottomDockWidgetArea,
+            bottom_min,
+        )
         dock_stats = self._add_dock(
             "Statistics",
             self._stats_panel,
@@ -156,7 +169,8 @@ class MainWindow(QMainWindow):
             bottom_min,
         )
 
-        self.tabifyDockWidget(dock_recon, dock_stats)
+        self.tabifyDockWidget(dock_recon, dock_dashboard)
+        self.tabifyDockWidget(dock_dashboard, dock_stats)
         self.tabifyDockWidget(dock_stats, dock_pole)
         self.tabifyDockWidget(dock_pole, dock_log)
         dock_recon.raise_()
@@ -167,6 +181,7 @@ class MainWindow(QMainWindow):
             "Orientation Relationship": dock_or,
             "Grain Info": dock_grain_info,
             "Reconstruction": dock_recon,
+            "Dashboard": dock_dashboard,
             "Statistics": dock_stats,
             "Pole Figure": dock_pole,
             "Log": dock_log,
@@ -221,6 +236,14 @@ class MainWindow(QMainWindow):
             action.setText(name)
             view_menu.addAction(action)
 
+        view_menu.addSeparator()
+        theme_menu = view_menu.addMenu("Theme")
+        for theme_name in THEMES:
+            action = theme_menu.addAction(theme_name)
+            action.triggered.connect(
+                lambda checked, n=theme_name: self._switch_theme(n)
+            )
+
         tools_menu = menu_bar.addMenu("&Tools")
         export_img = QAction("Export Image (PNG/SVG)...", self)
         export_img.triggered.connect(self._export_image)
@@ -234,9 +257,16 @@ class MainWindow(QMainWindow):
         export_data.triggered.connect(self._export_map_data)
         tools_menu.addAction(export_data)
 
+        tools_menu.addSeparator()
+        line_profile_action = QAction("Misorientation Line Profile", self)
+        line_profile_action.setShortcut(QKeySequence("L"))
+        line_profile_action.triggered.connect(self._map_viewer.toggle_line_mode)
+        tools_menu.addAction(line_profile_action)
+
     def _setup_toolbar(self):
         toolbar = QToolBar("Main Toolbar")
         toolbar.setObjectName("main_toolbar")
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.addToolBar(toolbar)
 
         style = self.style()
@@ -307,23 +337,43 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        toolbar.addWidget(QLabel(" Display: "))
+        self._map_viewer._display_combo.setToolTip("Display mode")
         toolbar.addWidget(self._map_viewer._display_combo)
         toolbar.addWidget(self._map_viewer._hist_eq_cb)
 
         toolbar.addSeparator()
 
         self._cmap_combo = QComboBox()
+        self._cmap_combo.setToolTip("Colormap")
         self._cmap_combo.addItems(
             ["viridis", "plasma", "magma", "inferno", "cividis", "turbo"]
         )
         self._cmap_combo.currentTextChanged.connect(self._map_viewer.set_colormap)
-        toolbar.addWidget(QLabel(" Colormap: "))
         toolbar.addWidget(self._cmap_combo)
 
         self._boundary_cb = QCheckBox("Boundaries")
         self._boundary_cb.toggled.connect(self._map_viewer.set_boundary_overlay)
         toolbar.addWidget(self._boundary_cb)
+
+        toolbar.addSeparator()
+
+        split_action = QAction("Split", self)
+        split_action.setCheckable(True)
+        split_action.toggled.connect(self._toggle_split)
+        toolbar.addAction(split_action)
+
+        self._map_viewer._split_combo.setToolTip("Split display mode")
+        self._map_viewer._split_combo.setVisible(False)
+        toolbar.addWidget(self._map_viewer._split_combo)
+
+        roi_action = QAction("ROI", self)
+        roi_action.setCheckable(True)
+        roi_action.toggled.connect(self._toggle_roi)
+        toolbar.addAction(roi_action)
+
+        clear_roi_action = QAction("Clear ROI", self)
+        clear_roi_action.triggered.connect(self._clear_roi)
+        toolbar.addAction(clear_roi_action)
 
         toolbar.addSeparator()
 
@@ -341,9 +391,11 @@ class MainWindow(QMainWindow):
         self._status_bar = QStatusBar()
         self.setStatusBar(self._status_bar)
         self._file_label = QLabel("")
-        self._status_bar.addWidget(self._file_label)
+        self._status_bar.addWidget(self._file_label, 1)
         self._pixel_label = QLabel("")
-        self._status_bar.addWidget(self._pixel_label)
+        self._status_bar.addWidget(self._pixel_label, 1)
+        self._perf_label = QLabel("")
+        self._status_bar.addPermanentWidget(self._perf_label)
         self._progress_bar = QProgressBar()
         self._progress_bar.setMaximumWidth(200)
         self._progress_bar.setVisible(False)
@@ -476,6 +528,7 @@ class MainWindow(QMainWindow):
             self._ebsd_map = load_ebsd(path)
             self._add_recent(path)
             self._map_viewer.set_ebsd_map(self._ebsd_map)
+            self._or_panel.set_ebsd_map(self._ebsd_map)
             self._phase_panel.set_phases(
                 self._ebsd_map.phases, self._ebsd_map.phase_ids
             )
@@ -504,6 +557,7 @@ class MainWindow(QMainWindow):
         self._reconstruction_panel.start_reconstruction(self._ebsd_map, full_config)
         self._progress_bar.setVisible(True)
         self._progress_bar.setRange(0, 0)
+        self._task_manager.submit("reconstruction", "Reconstruction")
         self._log(
             f"Reconstruction started — algorithm={full_config.algorithm}, OR={or_config}"
         )
@@ -514,12 +568,15 @@ class MainWindow(QMainWindow):
         self._result = result
         if result is None:
             self._status_bar.showMessage("Reconstruction failed")
+            self._task_manager.complete("reconstruction", "error")
             self._log("Reconstruction FAILED")
             return
+        elapsed = (datetime.now() - self._recon_start).total_seconds()
+        self._task_manager.complete("reconstruction", "done")
         self._map_viewer.set_reconstruction_result(result)
         self._stats_panel.update_stats(result, self._ebsd_map)
+        self._stats_dashboard.update_stats(result, self._ebsd_map, elapsed=elapsed)
         n_parents = len(set(result.parent_grain_ids.tolist()))
-        elapsed = (datetime.now() - self._recon_start).total_seconds()
         fit_valid = result.fit_angles[~np.isnan(result.fit_angles)]
         q = (
             np.percentile(fit_valid, [25, 50, 75, 90, 95])
@@ -534,11 +591,26 @@ class MainWindow(QMainWindow):
             f"{pct_recon:.1f}% reconstructed in {elapsed:.1f}s"
         )
         self._status_bar.showMessage(summary)
+        self._perf_label.setText(f"{elapsed:.1f}s")
         self._log(summary)
         self._log(
             f"  Fit quintiles: Q25={q[0]:.2f} Q50={q[1]:.2f} "
             f"Q75={q[2]:.2f} Q90={q[3]:.2f} Q95={q[4]:.2f}"
         )
+
+    def _toggle_split(self, checked: bool):
+        self._map_viewer.set_split_visible(checked)
+
+    def _toggle_roi(self, checked: bool):
+        if checked:
+            if not self._map_viewer._roi_active:
+                self._map_viewer.toggle_roi_mode()
+        else:
+            if self._map_viewer._roi_active:
+                self._map_viewer.toggle_roi_mode()
+
+    def _clear_roi(self):
+        self._map_viewer.clear_roi()
 
     def _reset(self):
         self._ebsd_map = None
@@ -678,6 +750,18 @@ class MainWindow(QMainWindow):
             path = Path(urls[0].toLocalFile())
             if path.is_file():
                 self._load_file(path)
+
+    def _switch_theme(self, name: str):
+        app = QApplication.instance()
+        if app:
+            set_theme(name, app)
+            self._log(f"Theme changed to: {name}")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        central = self.centralWidget()
+        if central and hasattr(self, "_task_manager"):
+            self._task_manager.reposition(central.width(), central.height())
 
     def closeEvent(self, event):
         self._settings.setValue("window_geometry", self.saveGeometry())

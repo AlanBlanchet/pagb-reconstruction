@@ -1,4 +1,5 @@
 import numpy as np
+import pyqtgraph as pg
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -57,11 +58,26 @@ class ORPanel(QWidget):
         info_layout.addRow("Variants:", self._variant_count_label)
         layout.addWidget(self._info_box)
 
+        self._histogram_group = QGroupBox("Misorientation Distribution")
+        hist_layout = QVBoxLayout(self._histogram_group)
+        self._hist_plot = pg.PlotWidget()
+        self._hist_plot.setBackground("#1e1e2e")
+        self._hist_plot.setLabel("bottom", "Angle", units="\u00b0")
+        self._hist_plot.setLabel("left", "Count")
+        self._hist_plot.showGrid(x=True, y=True, alpha=0.2)
+        self._hist_plot.setMinimumHeight(150)
+        hist_layout.addWidget(self._hist_plot)
+        layout.addWidget(self._histogram_group)
+
+        self._peak_lines: list[pg.InfiniteLine] = []
+        self._ebsd_map_ref = None
+
         layout.addStretch()
         self._update_detail()
 
     def _on_or_changed(self, name: str):
         self._update_detail()
+        self._update_histogram()
         self.or_changed.emit(name)
 
     def _update_detail(self):
@@ -101,3 +117,34 @@ class ORPanel(QWidget):
 
     def get_optimize(self) -> bool:
         return self._optimize_cb.isChecked()
+
+    def set_ebsd_map(self, ebsd_map):
+        self._ebsd_map_ref = ebsd_map
+        self._update_histogram()
+
+    def _update_histogram(self):
+        self._hist_plot.clear()
+        self._peak_lines.clear()
+
+        if self._ebsd_map_ref is not None:
+            _, angles = self._ebsd_map_ref._pair_angles()
+            hist, bin_edges = np.histogram(angles, bins=90, range=(0, 90))
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            self._hist_plot.plot(
+                bin_centers, hist, stepMode=False,
+                pen=pg.mkPen("#cdd6f4", width=1.5),
+                fillLevel=0, fillBrush=(205, 214, 244, 40),
+            )
+
+        name = self._or_combo.currentText()
+        if name:
+            or_obj = OrientationRelationship.from_preset(name)
+            peak_angles = or_obj.theoretical_misorientations()
+            unique_peaks = np.unique(np.round(peak_angles, 1))
+            for angle in unique_peaks:
+                line = pg.InfiniteLine(
+                    pos=angle, angle=90,
+                    pen=pg.mkPen("#f38ba8", width=1.5, style=2),
+                )
+                self._hist_plot.addItem(line)
+                self._peak_lines.append(line)

@@ -251,6 +251,29 @@ class EBSDMap(SpatialMap):
         return self._to_grid(self._result.fit_angles, fill=np.nan)
 
     @map_property(
+        "Fit Angle",
+        requires_result=True,
+        dtype="scalar",
+        unit="\u00b0",
+        colormap="hot",
+        category="reconstruction",
+    )
+    def fit_angle_map(self) -> np.ndarray:
+        return self._to_grid(self._result.fit_angles, fill=np.nan)
+
+    @map_property(
+        "Packet", requires_result=True, dtype="discrete", category="reconstruction"
+    )
+    def packet_map(self) -> np.ndarray:
+        return self._to_grid(self._result.packet_ids).astype(np.float32)
+
+    @map_property(
+        "Block", requires_result=True, dtype="discrete", category="reconstruction"
+    )
+    def block_map(self) -> np.ndarray:
+        return self._to_grid(self._result.block_ids).astype(np.float32)
+
+    @map_property(
         "Parent IPF", requires_result=True, dtype="rgb", category="reconstruction"
     )
     def parent_ipf_map(self) -> np.ndarray:
@@ -484,3 +507,41 @@ class EBSDMap(SpatialMap):
         ):
             return np.array([0.0, 0.0, 1.0])
         return np.array([0.0, 0.0, 0.0])
+
+    @map_property(
+        "Parent Grain Colors",
+        requires_result=True,
+        dtype="rgb",
+        category="reconstruction",
+    )
+    def parent_grain_colors_map(self) -> np.ndarray:
+        parent_ids = self._result.parent_grain_ids
+        unique_ids = np.unique(parent_ids[parent_ids >= 0])
+        n = len(unique_ids)
+        golden_ratio = 0.618033988749895
+        rgb = np.zeros((self.topology.n_pixels, 3), dtype=np.float64)
+        for i, gid in enumerate(unique_ids):
+            hue = (i * golden_ratio) % 1.0
+            r, g, b = self._hsv_to_rgb(hue, 0.75, 0.9)
+            rgb[parent_ids == gid] = [r, g, b]
+        return self._to_grid(rgb)
+
+    @staticmethod
+    def _hsv_to_rgb(h: float, s: float, v: float) -> tuple[float, float, float]:
+        i = int(h * 6.0)
+        f = h * 6.0 - i
+        p = v * (1.0 - s)
+        q = v * (1.0 - f * s)
+        t = v * (1.0 - (1.0 - f) * s)
+        i = i % 6
+        if i == 0:
+            return v, t, p
+        if i == 1:
+            return q, v, p
+        if i == 2:
+            return p, v, t
+        if i == 3:
+            return p, q, v
+        if i == 4:
+            return t, p, v
+        return v, p, q

@@ -47,7 +47,7 @@
 - CrystallographicEntity(Displayable) → family, point_group, lattice, symmetry prop, n_symmetry_ops
 - SpatialMap(Displayable) → registered_map_properties(), compute_map_property()
 - map_property decorator tags methods with name + requires_result
-- EBSDMap: 15 @map_property methods total (11 original + Parent IPF, Parent + Boundaries, GOS, Misorientation)
+- EBSDMap: 18 @map_property methods total (11 original + Parent IPF, Parent + Boundaries, GOS, Misorientation, Fit Angle, Packet, Block)
 - GrainMetrics in core/grain_metrics.py: intercept + area methods → GrainSizeResult
 - Grain class: added equivalent_diameter, aspect_ratio, perimeter properties + map_width field
 - ReconstructionEngine.run() now sets self.\_map.grains after grain detection (required for GOS map)

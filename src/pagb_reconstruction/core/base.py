@@ -75,7 +75,15 @@ MapDtype = Literal["scalar", "rgb", "discrete"]
 
 
 class _MapPropertyMeta:
-    __slots__ = ("name", "requires_result", "dtype", "colormap", "value_range", "unit", "category")
+    __slots__ = (
+        "name",
+        "requires_result",
+        "dtype",
+        "colormap",
+        "value_range",
+        "unit",
+        "category",
+    )
 
     def __init__(
         self,
@@ -114,17 +122,24 @@ def map_property(
     category: str | None = None,
 ) -> Callable:
     meta = _MapPropertyMeta(
-        name, requires_result, dtype=dtype, colormap=colormap,
-        value_range=value_range, unit=unit, category=category,
+        name,
+        requires_result,
+        dtype=dtype,
+        colormap=colormap,
+        value_range=value_range,
+        unit=unit,
+        category=category,
     )
 
     def decorator(fn: Callable) -> Callable:
         if requires_result:
+
             @functools.wraps(fn)
             def wrapper(self, *args, **kwargs):
                 if self._result is None:
                     return _empty_for_dtype(self.shape, dtype)
                 return fn(self, *args, **kwargs)
+
             setattr(wrapper, _MAP_PROPERTY_ATTR, meta)
             return wrapper
         setattr(fn, _MAP_PROPERTY_ATTR, meta)
