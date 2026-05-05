@@ -4,7 +4,13 @@ from orix.vector import Vector3d
 from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QVBoxLayout, QWidget
 from scipy.stats import gaussian_kde
 
-from pagb_reconstruction.ui.theme import ACCENT, DARK_BG, DARK_FG, GRID_COLOR, create_dark_figure
+from pagb_reconstruction.ui.theme import (
+    ACCENT,
+    DARK_BG,
+    DARK_FG,
+    GRID_COLOR,
+    create_dark_figure,
+)
 
 
 class PoleFigureWidget(QWidget):
@@ -49,7 +55,9 @@ class PoleFigureWidget(QWidget):
         ax.tick_params(colors=DARK_FG, labelsize=7)
         ax.set_title(
             f"Pole Figure {self._hkl_combo.currentText()}",
-            color=DARK_FG, fontsize=10, pad=12,
+            color=DARK_FG,
+            fontsize=10,
+            pad=12,
         )
 
         if self._orientations is not None and len(self._orientations) > 0:
@@ -76,7 +84,7 @@ class PoleFigureWidget(QWidget):
                     xi = np.linspace(-np.pi / 2, np.pi / 2, 80)
                     yi = np.linspace(-np.pi / 2, np.pi / 2, 80)
                     Xi, Yi = np.meshgrid(xi, yi)
-                    Ri = np.sqrt(Xi ** 2 + Yi ** 2)
+                    Ri = np.sqrt(Xi**2 + Yi**2)
                     Ai = np.arctan2(Yi, Xi)
                     Zi = kde(np.vstack([Xi.ravel(), Yi.ravel()])).reshape(Xi.shape)
                     Zi[Ri > np.pi / 2] = np.nan
@@ -89,8 +97,11 @@ class PoleFigureWidget(QWidget):
 
             for label, angle_deg in [("[100]", 0), ("[010]", 90), ("[001]", 0)]:
                 ax.annotate(
-                    label, xy=(np.radians(angle_deg), np.pi / 2 * 0.95),
-                    fontsize=7, color=DARK_FG, ha="center",
+                    label,
+                    xy=(np.radians(angle_deg), np.pi / 2 * 0.95),
+                    fontsize=7,
+                    color=DARK_FG,
+                    ha="center",
                 )
 
         ax.set_ylim(0, np.pi / 2)
