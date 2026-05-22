@@ -118,7 +118,7 @@ class MainWindow(QMainWindow):
         self._log_text.setReadOnly(True)
 
         right_min = (240, 200)
-        bottom_min = (400, 150)
+        bottom_min = (400, 80)
 
         dock_params = self._add_dock(
             "Parameters",
@@ -133,13 +133,13 @@ class MainWindow(QMainWindow):
             right_min,
         )
         dock_or = self._add_dock(
-            "Orientation Relationship",
+            "OR Config",
             self._or_panel,
             Qt.DockWidgetArea.RightDockWidgetArea,
             right_min,
         )
         dock_grain_info = self._add_dock(
-            "Grain Info",
+            "Inspector",
             self._grain_info,
             Qt.DockWidgetArea.RightDockWidgetArea,
             right_min,
@@ -180,11 +180,16 @@ class MainWindow(QMainWindow):
         self.tabifyDockWidget(dock_pole, dock_log)
         dock_recon.raise_()
 
+        self._bottom_docks = [dock_recon, dock_stats, dock_pole, dock_log]
+
+        # Give more space to the map by constraining the right panel
+        self.resizeDocks([dock_params], [360], Qt.Orientation.Horizontal)
+
         self._docks = {
             "Parameters": dock_params,
             "Phases": dock_phases,
-            "Orientation Relationship": dock_or,
-            "Grain Info": dock_grain_info,
+            "OR Config": dock_or,
+            "Inspector": dock_grain_info,
             "Reconstruction": dock_recon,
             "Statistics": dock_stats,
             "Pole Figure": dock_pole,
@@ -287,12 +292,14 @@ class MainWindow(QMainWindow):
         open_action = QAction(
             style.standardIcon(style.StandardPixmap.SP_DialogOpenButton), "Open", self
         )
+        open_action.setToolTip("Open EBSD file (Ctrl+O)")
         open_action.triggered.connect(self._open_file)
         toolbar.addAction(open_action)
 
         save_action = QAction(
             style.standardIcon(style.StandardPixmap.SP_DialogSaveButton), "Save", self
         )
+        save_action.setToolTip("Save reconstruction data")
         save_action.triggered.connect(self._save_file)
         toolbar.addAction(save_action)
 
@@ -301,6 +308,7 @@ class MainWindow(QMainWindow):
         run_action = QAction(
             style.standardIcon(style.StandardPixmap.SP_MediaPlay), "Run", self
         )
+        run_action.setToolTip("Run reconstruction (Ctrl+R)")
         run_action.setShortcut(QKeySequence("Ctrl+R"))
         run_action.triggered.connect(self._run_reconstruction)
         toolbar.addAction(run_action)
@@ -308,6 +316,7 @@ class MainWindow(QMainWindow):
         self._stop_action = QAction(
             style.standardIcon(style.StandardPixmap.SP_MediaStop), "Stop", self
         )
+        self._stop_action.setToolTip("Stop reconstruction (Esc)")
         self._stop_action.setShortcut(QKeySequence("Escape"))
         self._stop_action.triggered.connect(self._reconstruction_panel._cancel)
         toolbar.addAction(self._stop_action)
@@ -317,18 +326,21 @@ class MainWindow(QMainWindow):
         zoom_in = QAction(
             style.standardIcon(style.StandardPixmap.SP_ArrowUp), "Zoom In", self
         )
+        zoom_in.setToolTip("Zoom in")
         zoom_in.triggered.connect(lambda: self._map_viewer.zoom(1.25))
         toolbar.addAction(zoom_in)
 
         zoom_out = QAction(
             style.standardIcon(style.StandardPixmap.SP_ArrowDown), "Zoom Out", self
         )
+        zoom_out.setToolTip("Zoom out")
         zoom_out.triggered.connect(lambda: self._map_viewer.zoom(0.8))
         toolbar.addAction(zoom_out)
 
         zoom_fit = QAction(
             style.standardIcon(style.StandardPixmap.SP_TitleBarMaxButton), "Fit", self
         )
+        zoom_fit.setToolTip("Fit map to view")
         zoom_fit.triggered.connect(self._map_viewer.zoom_fit)
         toolbar.addAction(zoom_fit)
 
@@ -339,12 +351,14 @@ class MainWindow(QMainWindow):
             "Export Image",
             self,
         )
+        export_img.setToolTip("Export current view as image")
         export_img.triggered.connect(self._export_image)
         toolbar.addAction(export_img)
 
         export_data = QAction(
             style.standardIcon(style.StandardPixmap.SP_FileIcon), "Export Data", self
         )
+        export_data.setToolTip("Export map data to file")
         export_data.triggered.connect(self._export_map_data)
         toolbar.addAction(export_data)
 
@@ -352,6 +366,7 @@ class MainWindow(QMainWindow):
 
         self._map_viewer._display_combo.setToolTip("Display mode")
         toolbar.addWidget(self._map_viewer._display_combo)
+        self._map_viewer._hist_eq_cb.setToolTip("Apply histogram equalization")
         toolbar.addWidget(self._map_viewer._hist_eq_cb)
 
         toolbar.addSeparator()
@@ -365,12 +380,14 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self._cmap_combo)
 
         self._boundary_cb = QCheckBox("Boundaries")
+        self._boundary_cb.setToolTip("Show grain boundary overlay")
         self._boundary_cb.toggled.connect(self._map_viewer.set_boundary_overlay)
         toolbar.addWidget(self._boundary_cb)
 
         toolbar.addSeparator()
 
         split_action = QAction("Split", self)
+        split_action.setToolTip("Toggle split view for comparison")
         split_action.setCheckable(True)
         split_action.toggled.connect(self._toggle_split)
         toolbar.addAction(split_action)
@@ -380,17 +397,20 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self._map_viewer._split_combo)
 
         roi_action = QAction("ROI", self)
+        roi_action.setToolTip("Draw region of interest")
         roi_action.setCheckable(True)
         roi_action.toggled.connect(self._toggle_roi)
         toolbar.addAction(roi_action)
 
         clear_roi_action = QAction("Clear ROI", self)
+        clear_roi_action.setToolTip("Clear current ROI selection")
         clear_roi_action.triggered.connect(self._clear_roi)
         toolbar.addAction(clear_roi_action)
 
         toolbar.addSeparator()
 
         reset_action = QAction("Reset", self)
+        reset_action.setToolTip("Reset all views and selections")
         reset_action.triggered.connect(self._reset)
         toolbar.addAction(reset_action)
 
@@ -562,6 +582,9 @@ class MainWindow(QMainWindow):
         if self._ebsd_map is None:
             self._status_bar.showMessage("No data loaded")
             return
+        for d in self._bottom_docks:
+            d.show()
+        self._docks["Reconstruction"].raise_()
         config = self._param_panel.get_config()
         or_config = self._or_panel.get_or_type()
         config_dict = config.model_dump()
@@ -751,6 +774,15 @@ class MainWindow(QMainWindow):
         state = self._settings.value("window_state")
         if state:
             self.restoreState(state)
+        else:
+            self._should_hide_bottom = True
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if getattr(self, "_should_hide_bottom", False):
+            self._should_hide_bottom = False
+            for d in self._bottom_docks:
+                d.hide()
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():

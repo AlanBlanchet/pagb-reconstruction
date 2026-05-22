@@ -2,13 +2,14 @@ import logging
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
+    QGraphicsOpacityEffect,
     QLabel,
     QMenu,
     QVBoxLayout,
@@ -23,7 +24,6 @@ from pagb_reconstruction.core.reconstruction import ReconstructionResult
 from pagb_reconstruction.ui.theme import (
     ACCENT,
     DARK_FG,
-    EDGE_COLOR,
     GRID_COLOR,
     SURFACE_DIM,
     TEXT_DISABLED,
@@ -64,9 +64,10 @@ class MapViewer(QWidget):
         layout.setSpacing(0)
 
         self._display_combo = QComboBox()
+        self._display_combo.setMinimumWidth(100)
         self._display_combo.currentTextChanged.connect(self._update_display)
 
-        self._hist_eq_cb = QCheckBox("Hist. EQ")
+        self._hist_eq_cb = QCheckBox("Equalize")
         self._hist_eq_cb.toggled.connect(self._on_hist_eq_toggled)
 
         self._graphics_view = pg.GraphicsLayoutWidget()
@@ -133,20 +134,28 @@ class MapViewer(QWidget):
 
         layout.addWidget(self._graphics_view, 1)
 
-        self._computing_overlay = QLabel("")
+        self._computing_overlay = QLabel("", self._graphics_view)
         self._computing_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._computing_overlay.setFixedHeight(32)
         self._computing_overlay.setStyleSheet(
-            f"background: {EDGE_COLOR}; color: {ACCENT}; font-size: 13px; "
-            "padding: 6px 16px; border-radius: 4px;"
+            f"background: rgba(0, 0, 0, 180); color: {ACCENT}; font-size: 14px; "
+            "font-weight: bold; padding: 12px 24px; border-radius: 8px;"
         )
         self._computing_overlay.setVisible(False)
-        layout.addWidget(self._computing_overlay)
+
+        self._overlay_opacity = QGraphicsOpacityEffect(self._computing_overlay)
+        self._computing_overlay.setGraphicsEffect(self._overlay_opacity)
+        self._overlay_anim = QPropertyAnimation(self._overlay_opacity, b"opacity")
+        self._overlay_anim.setDuration(800)
+        self._overlay_anim.setStartValue(0.6)
+        self._overlay_anim.setEndValue(1.0)
+        self._overlay_anim.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self._overlay_anim.setLoopCount(-1)
 
         self._status_strip = QLabel("")
-        self._status_strip.setFixedHeight(22)
+        self._status_strip.setFixedHeight(20)
         self._status_strip.setStyleSheet(
-            f"background: {SURFACE_DIM}; color: {TEXT_MUTED}; padding: 2px 8px; font-size: 11px; font-family: monospace;"
+            f"background: {SURFACE_DIM}; color: {TEXT_MUTED}; padding: 2px 4px; "
+            f"font-size: 11px; font-family: monospace; border-top: 1px solid {GRID_COLOR};"
         )
         layout.addWidget(self._status_strip)
 
@@ -174,6 +183,19 @@ class MapViewer(QWidget):
 
         self._plot.vb.setMenuEnabled(False)
         self._plot.vb.scene().sigMouseClicked.connect(self._on_right_click)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._position_overlay()
+
+    def _position_overlay(self):
+        if self._computing_overlay.isVisible():
+            self._computing_overlay.adjustSize()
+            gw = self._graphics_view.width()
+            gh = self._graphics_view.height()
+            ow = self._computing_overlay.width()
+            oh = self._computing_overlay.height()
+            self._computing_overlay.move((gw - ow) // 2, (gh - oh) // 2)
 
     def _on_hist_eq_toggled(self, checked: bool):
         self._hist_eq_enabled = checked
@@ -265,6 +287,8 @@ class MapViewer(QWidget):
         meta = self._find_meta(mode)
         self._computing_overlay.setText(f"Computing {mode}...")
         self._computing_overlay.setVisible(True)
+        self._position_overlay()
+        self._overlay_anim.start()
         self._display_combo.setEnabled(False)
 
         worker = ComputeWorker(self._compute_image, mode)
@@ -279,6 +303,7 @@ class MapViewer(QWidget):
         if generation != self._compute_generation:
             return
         self._computing_overlay.setVisible(False)
+        self._overlay_anim.stop()
         self._display_combo.setEnabled(True)
         self._active_worker = None
         if image is None:
@@ -312,6 +337,8 @@ class MapViewer(QWidget):
         if generation != self._compute_generation:
             return
         self._computing_overlay.setText(f"Error: {msg}")
+        self._overlay_anim.stop()
+        self._overlay_opacity.setOpacity(1.0)
         self._display_combo.setEnabled(True)
         self._active_worker = None
         logger.error("Map computation failed: %s", msg)
