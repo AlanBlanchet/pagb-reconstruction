@@ -33,6 +33,22 @@ class ThemePalette(BaseModel):
 
 
 THEMES: dict[str, ThemePalette] = {
+    "Carbon": ThemePalette(
+        name="Carbon",
+        bg="#1e1e1e",
+        fg="#d4d4d4",
+        surface="#252526",
+        surface_dim="#181818",
+        border="#3c3c3c",
+        accent="#007acc",
+        accent_alt="#0098ff",
+        text_muted="#858585",
+        text_disabled="#5a5a5a",
+        success="#4ec9b0",
+        warning="#dcdcaa",
+        error="#f14c4c",
+        info="#3794ff",
+    ),
     "Catppuccin Mocha": ThemePalette(
         name="Catppuccin Mocha",
         bg="#1e1e2e",
@@ -99,7 +115,7 @@ THEMES: dict[str, ThemePalette] = {
     ),
 }
 
-_active: ThemePalette = THEMES["Catppuccin Mocha"]
+_active: ThemePalette = THEMES["Carbon"]
 
 DARK_BG = _active.bg
 DARK_FG = _active.fg
@@ -164,8 +180,8 @@ QTabWidget::pane {{
     border-radius: 2px;
 }}
 QTabBar::tab {{
-    padding: 6px 12px;
-    min-width: 60px;
+    padding: 6px 10px;
+    min-width: 40px;
     margin-right: 2px;
     border-top-left-radius: 4px;
     border-top-right-radius: 4px;
@@ -251,6 +267,95 @@ QSpinBox, QDoubleSpinBox {{
 QSpinBox:hover, QDoubleSpinBox:hover {{
     border-color: {p.accent};
 }}
+QScrollBar:vertical {{
+    background: {p.bg};
+    width: 10px;
+    border: none;
+}}
+QScrollBar::handle:vertical {{
+    background: {p.border};
+    min-height: 20px;
+    border-radius: 5px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background: {p.text_muted};
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 0;
+}}
+QScrollBar:horizontal {{
+    background: {p.bg};
+    height: 10px;
+    border: none;
+}}
+QScrollBar::handle:horizontal {{
+    background: {p.border};
+    min-width: 20px;
+    border-radius: 5px;
+}}
+QScrollBar::handle:horizontal:hover {{
+    background: {p.text_muted};
+}}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+    width: 0;
+}}
+QToolTip {{
+    background: {p.surface};
+    color: {p.fg};
+    border: 1px solid {p.border};
+    padding: 4px 8px;
+    font-size: 12px;
+}}
+QMenu {{
+    background: {p.surface};
+    border: 1px solid {p.border};
+    padding: 4px 0;
+}}
+QMenu::item {{
+    padding: 6px 28px 6px 12px;
+}}
+QMenu::item:selected {{
+    background: {p.accent};
+    color: #ffffff;
+}}
+QMenu::separator {{
+    height: 1px;
+    background: {p.border};
+    margin: 4px 8px;
+}}
+QMenuBar {{
+    background: {p.surface_dim};
+    border-bottom: 1px solid {p.border};
+    padding: 2px;
+}}
+QMenuBar::item:selected {{
+    background: {p.border};
+    border-radius: 3px;
+}}
+QLabel {{
+    color: {p.fg};
+}}
+QPlainTextEdit {{
+    background: {p.surface_dim};
+    border: 1px solid {p.border};
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 12px;
+}}
+QCheckBox::indicator {{
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 1px solid {p.border};
+    background: {p.surface};
+}}
+QCheckBox::indicator:checked {{
+    background: {p.accent};
+    border-color: {p.accent};
+}}
+QCheckBox::indicator:hover {{
+    border-color: {p.accent};
+}}
 """
 
 
@@ -265,7 +370,7 @@ def _apply_active(app: QApplication):
     try:
         qdarktheme.setup_theme(
             mode,
-            corner_shape="sharp",
+            corner_shape="rounded",
             custom_colors={
                 "primary": p.accent,
                 "background": p.bg,
@@ -284,7 +389,7 @@ def _apply_active(app: QApplication):
 
 def apply_theme(app: QApplication):
     settings = QSettings("PAGB", "pagb-reconstruction")
-    saved = settings.value("theme", "Catppuccin Mocha")
+    saved = settings.value("theme", "Carbon")
     if saved in THEMES:
         global _active
         _active = THEMES[saved]
