@@ -75,6 +75,7 @@ class MapViewer(QWidget):
         self._plot.setAspectLocked(True, ratio=1)
         self._plot.invertY(True)
         self._plot.getViewBox().setDefaultPadding(0)
+        self._plot.hideButtons()
         self._image_item = pg.ImageItem()
         self._plot.addItem(self._image_item)
         self._plot.hideAxis("left")

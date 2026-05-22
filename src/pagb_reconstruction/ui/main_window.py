@@ -121,7 +121,7 @@ class MainWindow(QMainWindow):
         bottom_min = (400, 80)
 
         dock_params = self._add_dock(
-            "Parameters",
+            "Params",
             self._param_panel,
             Qt.DockWidgetArea.RightDockWidgetArea,
             right_min,
@@ -133,13 +133,13 @@ class MainWindow(QMainWindow):
             right_min,
         )
         dock_or = self._add_dock(
-            "OR Config",
+            "OR",
             self._or_panel,
             Qt.DockWidgetArea.RightDockWidgetArea,
             right_min,
         )
         dock_grain_info = self._add_dock(
-            "Inspector",
+            "Info",
             self._grain_info,
             Qt.DockWidgetArea.RightDockWidgetArea,
             right_min,
@@ -163,7 +163,7 @@ class MainWindow(QMainWindow):
             bottom_min,
         )
         dock_pole = self._add_dock(
-            "Pole Figure",
+            "Poles",
             self._pole_figure,
             Qt.DockWidgetArea.BottomDockWidgetArea,
             bottom_min,
@@ -181,18 +181,16 @@ class MainWindow(QMainWindow):
         dock_recon.raise_()
 
         self._bottom_docks = [dock_recon, dock_stats, dock_pole, dock_log]
-
-        # Give more space to the map by constraining the right panel
-        self.resizeDocks([dock_params], [360], Qt.Orientation.Horizontal)
+        self._right_dock = dock_params
 
         self._docks = {
-            "Parameters": dock_params,
+            "Params": dock_params,
             "Phases": dock_phases,
-            "OR Config": dock_or,
-            "Inspector": dock_grain_info,
+            "OR": dock_or,
+            "Info": dock_grain_info,
             "Reconstruction": dock_recon,
             "Statistics": dock_stats,
-            "Pole Figure": dock_pole,
+            "Poles": dock_pole,
             "Log": dock_log,
         }
 
@@ -783,6 +781,7 @@ class MainWindow(QMainWindow):
             self._should_hide_bottom = False
             for d in self._bottom_docks:
                 d.hide()
+            self.resizeDocks([self._right_dock], [400], Qt.Orientation.Horizontal)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
