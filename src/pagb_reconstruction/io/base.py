@@ -82,7 +82,7 @@ def _detect_format(path: Path) -> str:
 def extract_phases(xmap: CrystalMap) -> list[PhaseConfig]:
     phases = []
     phase_list = xmap.phases_in_data
-    for phase_id in phase_list.ids:
+    for idx, phase_id in enumerate(phase_list.ids):
         if phase_id < 0:
             continue
         phase = phase_list[phase_id]
@@ -100,17 +100,29 @@ def extract_phases(xmap: CrystalMap) -> list[PhaseConfig]:
                 family=family,
                 point_group=pg,
                 lattice=lp,
-                color=_extract_hex_color(getattr(phase, "color", None)),
+                color=_extract_hex_color(getattr(phase, "color", None), idx),
                 phase_id=phase_id,
             )
         )
     return phases
 
 
-def _extract_hex_color(color) -> str:
+_PHASE_PALETTE = [
+    "#e41a1c",  # red
+    "#377eb8",  # blue
+    "#4daf4a",  # green
+    "#984ea3",  # purple
+    "#ff7f00",  # orange
+    "#a65628",  # brown
+    "#f781bf",  # pink
+    "#999999",  # gray
+]
+
+
+def _extract_hex_color(color, index: int = 0) -> str:
     if isinstance(color, str) and color.startswith("#") and len(color) == 7:
         return color
-    return "#808080"
+    return _PHASE_PALETTE[index % len(_PHASE_PALETTE)]
 
 
 def _lattice_from_structure(lattice) -> LatticeParams:

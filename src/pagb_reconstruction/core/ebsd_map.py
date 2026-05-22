@@ -143,9 +143,15 @@ class EBSDMap(SpatialMap):
             return np.zeros(self.shape)
         return self._to_grid(prop)
 
-    @map_property("Phase", dtype="discrete", category="phase")
+    @map_property("Phase", dtype="rgb", category="phase")
     def phase_map(self) -> np.ndarray:
-        return self._to_grid(self.crystal_map.phase_id)
+        phase_ids = self.crystal_map.phase_id
+        rgb = np.zeros((len(phase_ids), 3), dtype=np.float32)
+        for phase in self.phases:
+            mask = phase_ids == phase.phase_id
+            color = matplotlib.colors.to_rgb(phase.color)
+            rgb[mask] = color
+        return self._to_grid(rgb)
 
     @map_property("IPF-Z", dtype="rgb", category="orientation")
     def ipf_z_map(self) -> np.ndarray:

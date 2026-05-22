@@ -71,8 +71,9 @@ class MapViewer(QWidget):
 
         self._graphics_view = pg.GraphicsLayoutWidget()
         self._plot = self._graphics_view.addPlot()
-        self._plot.setAspectLocked(True)
+        self._plot.setAspectLocked(True, ratio=1)
         self._plot.invertY(True)
+        self._plot.getViewBox().setDefaultPadding(0)
         self._image_item = pg.ImageItem()
         self._plot.addItem(self._image_item)
         self._plot.hideAxis("left")
@@ -116,8 +117,6 @@ class MapViewer(QWidget):
         self._split_plot.addItem(self._split_image_item)
         self._split_plot.hideAxis("left")
         self._split_plot.hideAxis("bottom")
-        self._split_plot.setXLink(self._plot)
-        self._split_plot.setYLink(self._plot)
         self._split_plot.setVisible(False)
 
         self._split_combo = QComboBox()
@@ -292,7 +291,9 @@ class MapViewer(QWidget):
         )
         if is_rgb:
             display = self._apply_hist_eq_rgb(image) if self._hist_eq_enabled else image
-            self._image_item.setImage(display, autoLevels=True)
+            if display.dtype == np.float32 or display.dtype == np.float64:
+                display = (np.clip(display, 0, 1) * 255).astype(np.uint8)
+            self._image_item.setImage(display, autoLevels=False, levels=(0, 255))
             self._image_item.setLookupTable(None)
             self._colorbar_plot.setVisible(False)
         else:
@@ -304,6 +305,8 @@ class MapViewer(QWidget):
             self._image_item.setLookupTable(lut)
             self._update_colorbar(display)
         self._update_boundary()
+        self._update_scalebar()
+        self._plot.getViewBox().autoRange(padding=0)
 
     def _on_compute_error(self, msg, generation):
         if generation != self._compute_generation:
@@ -584,9 +587,13 @@ class MapViewer(QWidget):
         self._split_mode = not self._split_mode
         self._split_plot.setVisible(self._split_mode)
         if self._split_mode:
+            self._split_plot.setXLink(self._plot)
+            self._split_plot.setYLink(self._plot)
             self._split_combo.setVisible(True)
             self._update_split_display()
         else:
+            self._split_plot.setXLink(None)
+            self._split_plot.setYLink(None)
             self._split_combo.setVisible(False)
 
     def set_split_visible(self, visible: bool):
@@ -594,7 +601,12 @@ class MapViewer(QWidget):
         self._split_plot.setVisible(visible)
         self._split_combo.setVisible(visible)
         if visible:
+            self._split_plot.setXLink(self._plot)
+            self._split_plot.setYLink(self._plot)
             self._update_split_display()
+        else:
+            self._split_plot.setXLink(None)
+            self._split_plot.setYLink(None)
 
     def _update_split_display(self):
         if not self._split_mode or self._ebsd_map is None:

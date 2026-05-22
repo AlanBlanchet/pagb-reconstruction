@@ -59,6 +59,13 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("PAGB Reconstruction")
         self.setMinimumSize(1200, 800)
 
+        self.setCorner(
+            Qt.Corner.BottomRightCorner, Qt.DockWidgetArea.BottomDockWidgetArea
+        )
+        self.setCorner(
+            Qt.Corner.BottomLeftCorner, Qt.DockWidgetArea.BottomDockWidgetArea
+        )
+
         central = QWidget()
         central_layout = QVBoxLayout(central)
         central_layout.setContentsMargins(0, 0, 0, 0)

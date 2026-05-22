@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QScrollArea,
     QSlider,
     QSpinBox,
     QVBoxLayout,
@@ -275,9 +276,20 @@ class ParamPanel(QWidget):
         super().__init__()
         self._config = ReconstructionConfig()
         self._field_widgets: dict[str, QWidget] = {}
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        outer.addWidget(scroll)
+
+        inner = QWidget()
+        layout = QVBoxLayout(inner)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(6)
+        scroll.setWidget(inner)
 
         self._preset_control = SegmentedControl(list(_PRESETS.keys()))
         self._preset_control.selection_changed.connect(self._apply_preset)
@@ -321,7 +333,7 @@ class ParamPanel(QWidget):
                 row.setSpacing(4)
                 lbl = QLabel(label_text)
                 lbl.setStyleSheet("font-size: 11px;")
-                lbl.setFixedWidth(100)
+                lbl.setMinimumWidth(120)
                 row.addWidget(lbl)
 
                 widget = self._make_field_widget(
