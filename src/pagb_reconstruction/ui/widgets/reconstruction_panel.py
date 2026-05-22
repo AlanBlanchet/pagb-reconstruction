@@ -1,7 +1,7 @@
 import time
 
 import numpy as np
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QSize, QThread, Signal
 from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
@@ -89,6 +89,9 @@ class ReconstructionPanel(QWidget):
         self._step_timings: list[tuple[str, float]] = []
         self._setup_ui()
 
+    def sizeHint(self):
+        return QSize(400, 120)
+
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -123,8 +126,8 @@ class ReconstructionPanel(QWidget):
 
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
-        self._log.setMaximumHeight(80)
-        layout.addWidget(self._log, 1)
+        self._log.setMaximumHeight(60)
+        layout.addWidget(self._log)
 
         self._results_group = QGroupBox("Results Summary")
         self._results_group.setVisible(False)
@@ -133,6 +136,7 @@ class ReconstructionPanel(QWidget):
         self._results_label.setWordWrap(True)
         results_layout.addWidget(self._results_label)
         layout.addWidget(self._results_group)
+        layout.addStretch(1)
 
     def start_reconstruction(self, ebsd_map: EBSDMap, config: ReconstructionConfig):
         if self._worker is not None and self._worker.isRunning():

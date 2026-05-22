@@ -164,7 +164,8 @@ QTabWidget::pane {{
     border-radius: 2px;
 }}
 QTabBar::tab {{
-    padding: 6px 14px;
+    padding: 6px 12px;
+    min-width: 60px;
     margin-right: 2px;
     border-top-left-radius: 4px;
     border-top-right-radius: 4px;
@@ -228,7 +229,8 @@ QDockWidget {{
 }}
 QDockWidget::title {{
     background: {p.surface_dim};
-    padding: 4px 8px;
+    padding: 6px 8px;
+    font-weight: bold;
     border-bottom: 1px solid {p.surface};
 }}
 QComboBox {{
