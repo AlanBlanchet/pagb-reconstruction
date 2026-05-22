@@ -1,8 +1,13 @@
+import platform
+import sys
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 import numpy as np
+import orix
 from orix.quaternion import Rotation
+from PySide6 import __version__ as qt_version
 from PySide6.QtCore import QSettings, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -14,6 +19,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QStatusBar,
@@ -22,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from pagb_reconstruction import __version__
 from pagb_reconstruction.core.ebsd_map import EBSDMap
 from pagb_reconstruction.core.reconstruction import ReconstructionConfig
 from pagb_reconstruction.core.updater import UpdateChecker
@@ -259,6 +266,15 @@ class MainWindow(QMainWindow):
         line_profile_action.setShortcut(QKeySequence("L"))
         line_profile_action.triggered.connect(self._map_viewer.toggle_line_mode)
         tools_menu.addAction(line_profile_action)
+
+        help_menu = menu_bar.addMenu("&Help")
+        bug_action = QAction("Report &Bug...", self)
+        bug_action.triggered.connect(self._report_bug)
+        help_menu.addAction(bug_action)
+        help_menu.addSeparator()
+        about_action = QAction("&About", self)
+        about_action.triggered.connect(self._show_about)
+        help_menu.addAction(about_action)
 
     def _setup_toolbar(self):
         toolbar = QToolBar("Main Toolbar")
@@ -752,6 +768,43 @@ class MainWindow(QMainWindow):
         if app:
             set_theme(name, app)
             self._log(f"Theme changed to: {name}")
+
+    def _report_bug(self):
+        body = (
+            "**Describe the bug**\n"
+            "<!-- A clear and concise description of what the bug is -->\n"
+            "\n\n"
+            "**Steps to reproduce**\n"
+            "1. \n"
+            "2. \n"
+            "3. \n"
+            "\n"
+            "**Expected behavior**\n"
+            "\n\n"
+            "---\n"
+            "**Environment**\n"
+            f"- App: {__version__}\n"
+            f"- Python: {sys.version}\n"
+            f"- Platform: {platform.platform()}\n"
+            f"- Qt: {qt_version}\n"
+            f"- orix: {orix.__version__}\n"
+            f"- numpy: {np.__version__}\n"
+        )
+        url = (
+            "https://github.com/AlanBlanchet/pagb-reconstruction/issues/new"
+            f"?title=&body={quote(body)}"
+        )
+        QDesktopServices.openUrl(QUrl(url))
+
+    def _show_about(self):
+        QMessageBox.about(
+            self,
+            "About PAGB Reconstruction",
+            f"<h3>PAGB Reconstruction v{__version__}</h3>"
+            "<p>Prior Austenite Grain Boundary reconstruction from EBSD data.</p>"
+            '<p><a href="https://github.com/AlanBlanchet/pagb-reconstruction">'
+            "GitHub</a></p>",
+        )
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
