@@ -441,6 +441,7 @@ class MainWindow(QMainWindow):
         self._or_panel.or_changed.connect(self._on_or_changed)
         self._map_viewer.pixel_hovered.connect(self._on_pixel_hover)
         self._map_viewer.pixel_clicked.connect(self._on_pixel_click)
+        self._map_viewer.roi_changed.connect(self._on_roi_changed)
 
         QTimer.singleShot(3000, self._check_updates)
         self._update_bar.open_url.connect(
@@ -463,6 +464,9 @@ class MainWindow(QMainWindow):
     def _on_or_changed(self, or_name: str):
         self._status_bar.showMessage(f"OR changed to: {or_name}")
         self._log(f"OR changed to: {or_name}")
+
+    def _on_roi_changed(self, x, y, w, h):
+        self._status_bar.showMessage(f"ROI: ({x}, {y}) {w}\u00d7{h} px")
 
     def _on_pixel_hover(self, x: int, y: int):
         if self._ebsd_map is None:
@@ -609,6 +613,7 @@ class MainWindow(QMainWindow):
         self._task_manager.complete("reconstruction", "done")
         self._map_viewer.set_reconstruction_result(result)
         self._stats_dashboard.update_stats(result, self._ebsd_map, elapsed=elapsed)
+        self._pole_figure.set_orientations(result.parent_orientations)
         n_parents = len(set(result.parent_grain_ids.tolist()))
         fit_valid = result.fit_angles[~np.isnan(result.fit_angles)]
         q = (

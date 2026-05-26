@@ -34,6 +34,8 @@ from pagb_reconstruction.ui.widgets.compute_worker import ComputeWorker
 
 logger = logging.getLogger(__name__)
 
+_INSTANT_MODES = frozenset({"Phase", "Band Contrast", "Grain ID", "Euler Angles"})
+
 
 class MapViewer(QWidget):
     pixel_hovered = Signal(int, int)
@@ -286,6 +288,12 @@ class MapViewer(QWidget):
             self._active_worker = None
 
         meta = self._find_meta(mode)
+
+        if mode in _INSTANT_MODES:
+            image = self._compute_image(mode)
+            self._on_compute_done(image, meta, gen)
+            return
+
         self._computing_overlay.setText(f"Computing {mode}...")
         self._computing_overlay.setVisible(True)
         self._position_overlay()
