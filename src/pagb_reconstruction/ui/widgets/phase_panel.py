@@ -1,4 +1,5 @@
 import numpy as np
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -75,15 +76,27 @@ class PhasePanel(QWidget):
             self._detail_label.setText("")
             return
         phase = self._phases[row]
-        info = phase.to_dict_display()
-        lines = [f"Crystal family: {phase.family.value}"]
-        lines.extend(f"{k}: {v}" for k, v in info.items())
+        lat = phase.lattice
         pix_count = self._phase_pixel_counts.get(phase.phase_id, 0)
+        vol_frac = pix_count / self._total_pixels * 100 if self._total_pixels > 0 else 0
+        lines = [
+            f"<b>{phase.name}</b>",
+            f"Phase ID: {phase.phase_id}",
+            f"Crystal family: {phase.family.value}",
+            f"Point group: {phase.point_group}",
+            f"Space group: {phase.space_group if phase.space_group else '-'}",
+            "",
+            "<b>Lattice (Å, °)</b>",
+            f"a={lat.a:.3f}, b={lat.b:.3f}, c={lat.c:.3f}",
+            f"α={lat.alpha:.1f}, β={lat.beta:.1f}, γ={lat.gamma:.1f}",
+        ]
         if self._total_pixels > 0:
-            lines.append(
-                f"Volume fraction: {pix_count / self._total_pixels * 100:.1f}% ({pix_count} px)"
-            )
-        self._detail_label.setText("\n".join(lines))
+            lines += [
+                "",
+                f"<b>Volume fraction:</b> {vol_frac:.1f}% ({pix_count:,} px)",
+            ]
+        self._detail_label.setText("<br>".join(lines))
+        self._detail_label.setTextFormat(Qt.TextFormat.RichText)
 
     def _add_phase(self):
         self._phases.append(PhaseConfig.ferrite())

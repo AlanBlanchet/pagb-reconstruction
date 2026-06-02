@@ -6,7 +6,6 @@ from urllib.parse import quote
 
 import numpy as np
 import orix
-from orix.quaternion import Rotation
 from PySide6 import __version__ as qt_version
 from PySide6.QtCore import QSettings, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QShortcut
@@ -33,6 +32,7 @@ from pagb_reconstruction.core.ebsd_map import EBSDMap
 from pagb_reconstruction.core.reconstruction import ReconstructionConfig
 from pagb_reconstruction.core.updater import UpdateChecker
 from pagb_reconstruction.io.base import load_ebsd
+from pagb_reconstruction.io.reconstruction_export import ReconstructionExporter
 from pagb_reconstruction.ui.theme import THEMES, set_theme
 from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
 from pagb_reconstruction.ui.widgets.or_panel import ORPanel
@@ -541,9 +541,25 @@ class MainWindow(QMainWindow):
             self._grain_labels["Parent Grain ID"].setText(str(parent_id))
             self._grain_labels["Variant ID"].setText(f"V{variant_id}")
             self._grain_labels["Fit Angle"].setText(f"{fit:.2f}\u00b0")
+            if parent_id >= 0:
+                self._map_viewer.highlight_parent(parent_id)
+                if self._ebsd_map.grains:
+                    parent_mask = self._result.parent_grain_ids == parent_id
+                    child_ids = {
+                        g.id
+                        for g in self._ebsd_map.grains
+                        if any(parent_mask[px] for px in g.pixel_indices)
+                    }
+                    n_children = len(child_ids)
+                    self._status_bar.showMessage(
+                        f"Parent #{parent_id} contains {n_children} child grain(s)"
+                    )
+            else:
+                self._map_viewer.clear_highlight()
         else:
             for k in ("Parent Grain ID", "Variant ID", "Fit Angle"):
                 self._grain_labels[k].setText("-")
+            self._map_viewer.clear_highlight()
 
         self._docks["Grain Info"].raise_()
 
@@ -613,6 +629,8 @@ class MainWindow(QMainWindow):
         self._task_manager.complete("reconstruction", "done")
         self._map_viewer.set_reconstruction_result(result)
         self._stats_dashboard.update_stats(result, self._ebsd_map, elapsed=elapsed)
+        if result.optimized_or is not None:
+            self._or_panel.set_optimized_or(result.optimized_or)
         self._pole_figure.set_orientations(result.parent_orientations)
         n_parents = len(set(result.parent_grain_ids.tolist()))
         fit_valid = result.fit_angles[~np.isnan(result.fit_angles)]
@@ -661,27 +679,21 @@ class MainWindow(QMainWindow):
         if self._ebsd_map is None or self._result is None:
             self._status_bar.showMessage("No reconstruction result to save")
             return
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save Reconstructed Data", "", "ANG Files (*.ang);;All Files (*)"
+        path, selected = QFileDialog.getSaveFileName(
+            self,
+            "Save Reconstructed Data",
+            "",
+            "NumPy archive (*.npz);;ANG Files (*.ang);;All Files (*)",
         )
         if not path:
             return
+        out = Path(path)
+        if not out.suffix:
+            out = out.with_suffix(".npz" if "npz" in selected else ".ang")
         try:
-            rot = Rotation(self._result.parent_orientations.reshape(-1, 4))
-            parent_euler = rot.to_euler()
-            cm = self._ebsd_map.crystal_map
-            with open(path, "w") as f:
-                f.write("# Reconstructed parent orientations\n")
-                for i in range(cm.size):
-                    x_val = cm.x[i] if cm.x is not None else 0
-                    y_val = cm.y[i] if cm.y is not None else 0
-                    f.write(
-                        f"{parent_euler[i, 0]:.5f} {parent_euler[i, 1]:.5f} {parent_euler[i, 2]:.5f} "
-                        f"{x_val:.5f} {y_val:.5f} 1.0 1.0 "
-                        f"{int(self._result.parent_grain_ids[i])} 0 {self._result.fit_angles[i]:.4f}\n"
-                    )
-            self._log(f"Saved to {path}")
-            self._status_bar.showMessage(f"Saved: {path}")
+            ReconstructionExporter.save(out, self._ebsd_map, self._result)
+            self._log(f"Saved to {out}")
+            self._status_bar.showMessage(f"Saved: {out}")
         except Exception as e:
             self._status_bar.showMessage(f"Save error: {e}")
             self._log(f"Save ERROR: {e}")

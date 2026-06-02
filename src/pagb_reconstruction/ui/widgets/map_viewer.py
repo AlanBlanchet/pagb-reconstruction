@@ -91,6 +91,11 @@ class MapViewer(QWidget):
         self._plot.addItem(self._boundary_item)
         self._boundary_item.setVisible(False)
 
+        self._highlight_item = pg.ImageItem()
+        self._highlight_item.setZValue(11)
+        self._plot.addItem(self._highlight_item)
+        self._highlight_item.setVisible(False)
+
         self._crosshair_h = pg.InfiniteLine(
             angle=0, pen=pg.mkPen(ACCENT, width=1, style=Qt.PenStyle.DashLine)
         )
@@ -239,6 +244,7 @@ class MapViewer(QWidget):
         self._current_image = None
         self._image_item.clear()
         self._boundary_item.clear()
+        self.clear_highlight()
         self._colorbar_plot.setVisible(False)
         self._scalebar_item.hide()
         self._graphics_view.setVisible(False)
@@ -707,3 +713,26 @@ class MapViewer(QWidget):
         bounds = self.get_roi_bounds()
         if bounds:
             self.roi_changed.emit(*bounds)
+
+    def highlight_parent(self, parent_grain_id: int) -> None:
+        if self._ebsd_map is None or self._result is None:
+            return
+        if parent_grain_id < 0:
+            self.clear_highlight()
+            return
+        parent_ids = self._ebsd_map._to_grid(self._result.parent_grain_ids, fill=-1)
+        mask = parent_ids == parent_grain_id
+        if not np.any(mask):
+            self.clear_highlight()
+            return
+        rgba = np.zeros((*mask.shape, 4), dtype=np.float32)
+        rgba[mask, 0] = 1.0
+        rgba[mask, 1] = 0.9
+        rgba[mask, 2] = 0.2
+        rgba[mask, 3] = 0.35
+        self._highlight_item.setImage(rgba, autoLevels=False, levels=(0, 1))
+        self._highlight_item.setVisible(True)
+
+    def clear_highlight(self) -> None:
+        self._highlight_item.clear()
+        self._highlight_item.setVisible(False)

@@ -86,7 +86,11 @@ def extract_phases(xmap: CrystalMap) -> list[PhaseConfig]:
         if phase_id < 0:
             continue
         phase = phase_list[phase_id]
-        pg = str(phase.point_group) if phase.point_group else "m-3m"
+        pg_obj = phase.point_group
+        if pg_obj is None:
+            pg = "m-3m"
+        else:
+            pg = getattr(pg_obj, "name", None) or str(pg_obj).split("\n", 1)[0]
         lattice = (
             getattr(phase, "structure", None)
             and phase.structure

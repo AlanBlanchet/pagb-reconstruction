@@ -56,6 +56,9 @@ class ORPanel(QWidget):
         info_layout.addRow("Parent plane//dir:", self._miller_parent_label)
         info_layout.addRow("Child plane//dir:", self._miller_child_label)
         info_layout.addRow("Variants:", self._variant_count_label)
+        self._refined_label = QLabel("-")
+        self._refined_label.setWordWrap(True)
+        info_layout.addRow("Refined OR:", self._refined_label)
         layout.addWidget(self._info_box)
 
         self._histogram_group = QGroupBox("Misorientation Distribution")
@@ -84,6 +87,8 @@ class ORPanel(QWidget):
         name = self._or_combo.currentText()
         if not name:
             return
+        if hasattr(self, "_refined_label"):
+            self._refined_label.setText("-")
         or_obj = OrientationRelationship.from_preset(name)
         self._detail_label.setText(or_obj.description)
 
@@ -158,3 +163,50 @@ class ORPanel(QWidget):
                 )
                 self._hist_plot.addItem(line)
                 self._peak_lines.append(line)
+
+    def set_optimized_or(self, or_instance) -> None:
+        if or_instance is None:
+            self._refined_label.setText("-")
+            return
+        R = np.asarray(or_instance.rotation_matrix, dtype=float)
+        angle_rad = float(np.arccos(np.clip((np.trace(R) - 1) / 2, -1, 1)))
+        angle_deg = float(np.degrees(angle_rad))
+        if angle_rad > 1e-6:
+            axis = np.array(
+                [R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]]
+            )
+            axis = axis / np.linalg.norm(axis)
+        else:
+            axis = np.array([0.0, 0.0, 1.0])
+
+        name = self._or_combo.currentText()
+        preset_R = (
+            OrientationRelationship.from_preset(name).rotation_matrix
+            if name
+            else np.eye(3)
+        )
+        preset_angle_rad = float(
+            np.arccos(np.clip((np.trace(preset_R) - 1) / 2, -1, 1))
+        )
+        preset_angle_deg = float(np.degrees(preset_angle_rad))
+        if preset_angle_rad > 1e-6:
+            paxis = np.array(
+                [
+                    preset_R[2, 1] - preset_R[1, 2],
+                    preset_R[0, 2] - preset_R[2, 0],
+                    preset_R[1, 0] - preset_R[0, 1],
+                ]
+            )
+            paxis = paxis / np.linalg.norm(paxis)
+        else:
+            paxis = np.array([0.0, 0.0, 1.0])
+
+        d_angle = angle_deg - preset_angle_deg
+        cos_ax = float(np.clip(abs(np.dot(axis, paxis)), -1.0, 1.0))
+        d_axis_deg = float(np.degrees(np.arccos(cos_ax)))
+        self._refined_label.setText(
+            f"axis [{axis[0]:+.3f}, {axis[1]:+.3f}, {axis[2]:+.3f}], "
+            f"θ={angle_deg:.2f}°  "
+            f"(Δθ={d_angle:+.2f}°, "
+            f"Δaxis={d_axis_deg:.2f}°)"
+        )

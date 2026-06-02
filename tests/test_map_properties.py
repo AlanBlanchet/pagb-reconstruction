@@ -23,6 +23,7 @@ def test_result_properties(sample_ebsd, variant_graph_result):
         "Block",
         "Parent Grain ID",
         "Variant ID",
+        "Misfit Boundaries",
     ]
     for name in result_names:
         arr = sample_ebsd.compute_map_property(name)

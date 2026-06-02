@@ -220,15 +220,19 @@ class EBSDMap(SpatialMap):
         )
         return topo, angles
 
-    @map_property(
-        "KAM", dtype="scalar", unit="\u00b0", colormap="inferno", category="deformation"
-    )
-    def kam_map(self) -> np.ndarray:
+    def _pixel_kam(self) -> np.ndarray:
+        """Per-pixel Kernel Average Misorientation in pixel-index space."""
         topo, angles = self._pair_angles()
         kam = np.zeros(topo.n_pixels, dtype=np.float64)
         np.add.at(kam, topo.pairs[:, 0], angles)
         np.add.at(kam, topo.pairs[:, 1], angles)
-        return self._to_grid(kam / np.maximum(topo.degree, 1))
+        return kam / np.maximum(topo.degree, 1)
+
+    @map_property(
+        "KAM", dtype="scalar", unit="\u00b0", colormap="inferno", category="deformation"
+    )
+    def kam_map(self) -> np.ndarray:
+        return self._to_grid(self._pixel_kam())
 
     @map_property(
         "Parent Grain ID",
@@ -338,6 +342,62 @@ class EBSDMap(SpatialMap):
             )
             gos[g.pixel_indices] = angles.mean()
         return self._to_grid(gos)
+
+    @map_property(
+        "GAM",
+        dtype="scalar",
+        unit="°",
+        colormap="inferno",
+        category="deformation",
+    )
+    def gam_map(self) -> np.ndarray:
+        """Grain Average Misorientation — per-grain mean of pixel KAM values."""
+        kam = self._pixel_kam()
+        gam = np.zeros_like(kam)
+        for g in self.grains:
+            if len(g.pixel_indices) == 0:
+                continue
+            gam[g.pixel_indices] = float(kam[g.pixel_indices].mean())
+        return self._to_grid(gam)
+
+    @map_property(
+        "Misfit Boundaries",
+        requires_result=True,
+        dtype="rgb",
+        category="reconstruction",
+    )
+    def misfit_boundaries_map(self) -> np.ndarray:
+        bc = self.band_contrast_map()
+        if np.any(bc):
+            bc_norm = bc.astype(np.float64)
+            vmin, vmax = float(np.nanmin(bc_norm)), float(np.nanmax(bc_norm))
+            if vmax > vmin:
+                bc_norm = (bc_norm - vmin) / (vmax - vmin)
+            else:
+                bc_norm = np.zeros_like(bc_norm)
+            gray = 0.15 + 0.55 * bc_norm
+        else:
+            gray = np.full(self.shape, 0.18, dtype=np.float64)
+        rgb = np.stack([gray, gray, gray], axis=-1)
+
+        parent_ids = self._to_grid(self._result.parent_grain_ids, fill=-1)
+        boundary = boundaries_from_2d(parent_ids)
+        if not np.any(boundary):
+            return rgb
+
+        fit_grid = self._to_grid(self._result.fit_angles, fill=np.nan)
+        local = np.where(np.isnan(fit_grid), 0.0, fit_grid)
+        max_local = local.copy()
+        max_local[:, :-1] = np.maximum(max_local[:, :-1], local[:, 1:])
+        max_local[:, 1:] = np.maximum(max_local[:, 1:], local[:, :-1])
+        max_local[:-1, :] = np.maximum(max_local[:-1, :], local[1:, :])
+        max_local[1:, :] = np.maximum(max_local[1:, :], local[:-1, :])
+
+        cmap = matplotlib.colormaps["RdYlGn_r"]
+        vals = np.clip(max_local[boundary] / 10.0, 0.0, 1.0)
+        colors = cmap(vals)[:, :3]
+        rgb[boundary] = colors
+        return rgb
 
     @map_property(
         "Misorientation",
