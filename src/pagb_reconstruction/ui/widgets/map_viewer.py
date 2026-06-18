@@ -137,7 +137,7 @@ class MapViewer(QWidget):
         self._ipf_key_plot.setAspectLocked(True)
         self._ipf_key_plot.invertY(True)
         self._ipf_key_plot.setMouseEnabled(x=False, y=False)
-        self._ipf_key_plot.setMaximumWidth(150)
+        self._ipf_key_plot.setMaximumWidth(110)
         self._ipf_key_plot.setVisible(False)
 
         self._split_plot = self._graphics_view.addPlot()
@@ -420,6 +420,8 @@ class MapViewer(QWidget):
         self._ipf_key_item.setImage(img, autoLevels=False, levels=(0, 255))
         h, w = img.shape[:2]
         self._ipf_key_item.setRect(0, 0, w, h)
+        axis = name.split("-")[1] if "-" in name else "Z"
+        self._ipf_key_plot.setTitle(f"IPF ∥ {axis}", size="8pt")
         self._ipf_key_plot.setVisible(True)
         self._ipf_key_plot.getViewBox().autoRange(padding=0.02)
 
