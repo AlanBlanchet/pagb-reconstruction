@@ -1,6 +1,14 @@
 import numpy as np
+from orix.vector import Vector3d
 
 from pagb_reconstruction.core.ebsd_map import EBSDMap
+from pagb_reconstruction.utils.colormap import ipf_key_image
+
+
+def test_ipf_key_image(sample_ebsd):
+    img = ipf_key_image(sample_ebsd.primary_symmetry(), Vector3d.zvector())
+    assert img.ndim == 3 and img.shape[2] == 4
+    assert (img[:, :, :3] < 245).any(), "IPF key triangle should have colored pixels"
 
 
 def test_all_non_result_properties(sample_ebsd):

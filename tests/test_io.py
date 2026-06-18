@@ -7,8 +7,38 @@ from pagb_reconstruction.io.reconstruction_export import ReconstructionExporter
 
 
 def test_loaders_cover_expected_formats():
-    exts = {e for L in (ANGLoader, CTFLoader, HDF5Loader) for e in L.supported_extensions}
-    assert {".ang", ".ctf", ".h5"} <= exts
+    from pagb_reconstruction.io import CRCLoader
+
+    exts = {
+        e
+        for L in (ANGLoader, CTFLoader, HDF5Loader, CRCLoader)
+        for e in L.supported_extensions
+    }
+    assert {".ang", ".ctf", ".h5", ".crc"} <= exts
+
+
+def test_crc_loader_roundtrip(tmp_path):
+    # A tiny Channel5 .crc + .cpr (no large fixture needed): 25-byte records,
+    # phase byte + 3 Bunge Euler floats, rest skipped.
+    (tmp_path / "t.cpr").write_text(
+        "[Job]\nxCells=2\nyCells=2\nGridDistX=0.5\nGridDistY=0.5\n"
+        "[Phases]\n[Phase1]\nStructureName=Iron bcc\nLaueGroup=11\n"
+    )
+    rec = np.dtype([("phase", "u1"), ("euler", "<f4", (3,)), ("rest", "V", 12)])
+    arr = np.zeros(4, dtype=rec)
+    arr["phase"] = 1
+    arr["euler"] = [[0, 0, 0], [0.1, 0.2, 0.3], [1.0, 0.5, 1.0], [2.0, 1.0, 2.0]]
+    (tmp_path / "t.crc").write_bytes(arr.tobytes())
+
+    m = load_ebsd(tmp_path / "t.crc")
+    assert m.shape == (2, 2)
+    assert "iron" in m.phase_name(1).lower()
+
+
+def test_martensite_ctf_loads():
+    m = load_ebsd(Path("data/martensite_roomtemp.ctf"))
+    assert m.shape == (501, 667)
+    assert any("iron" in p.name.lower() for p in m.phases)
 
 
 def test_hdf5_roundtrip(sample_ebsd, tmp_path):

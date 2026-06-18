@@ -16,6 +16,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from orix.vector import Vector3d
+
+from pagb_reconstruction.utils.colormap import DEFAULT_IPF_DIRECTION, ipf_key_image
 from pagb_reconstruction.utils.math_ops import MisorientationOps
 
 from pagb_reconstruction.core.base import _MapPropertyMeta
@@ -35,6 +38,11 @@ from pagb_reconstruction.ui.widgets.compute_worker import ComputeWorker
 logger = logging.getLogger(__name__)
 
 _INSTANT_MODES = frozenset({"Phase", "Band Contrast", "Grain ID", "Euler Angles"})
+_IPF_DIRECTIONS = {
+    "IPF-X": Vector3d.xvector(),
+    "IPF-Y": Vector3d.yvector(),
+    "IPF-Z": Vector3d.zvector(),
+}
 
 
 class MapViewer(QWidget):
@@ -118,6 +126,19 @@ class MapViewer(QWidget):
         self._colorbar_plot.addItem(self._colorbar_label_min)
         self._colorbar_plot.addItem(self._colorbar_label_max)
         self._colorbar_plot.setVisible(False)
+
+        # IPF colour-key triangle, shown beside the map for orientation maps
+        # (an IPF map is uninterpretable without its key).
+        self._ipf_key_item = pg.ImageItem(axisOrder="row-major")
+        self._ipf_key_plot = self._graphics_view.addPlot()
+        self._ipf_key_plot.addItem(self._ipf_key_item)
+        self._ipf_key_plot.hideAxis("left")
+        self._ipf_key_plot.hideAxis("bottom")
+        self._ipf_key_plot.setAspectLocked(True)
+        self._ipf_key_plot.invertY(True)
+        self._ipf_key_plot.setMouseEnabled(x=False, y=False)
+        self._ipf_key_plot.setMaximumWidth(150)
+        self._ipf_key_plot.setVisible(False)
 
         self._split_plot = self._graphics_view.addPlot()
         self._split_plot.setAspectLocked(True)
@@ -264,6 +285,7 @@ class MapViewer(QWidget):
         self._boundary_item.clear()
         self.clear_highlight()
         self._colorbar_plot.setVisible(False)
+        self._ipf_key_plot.setVisible(False)
         self._scalebar_item.hide()
         self._graphics_view.setVisible(False)
         self._status_strip.setVisible(False)
@@ -354,17 +376,52 @@ class MapViewer(QWidget):
             self._image_item.setImage(display, autoLevels=False, levels=(0, 255))
             self._image_item.setLookupTable(None)
             self._colorbar_plot.setVisible(False)
+            self._update_ipf_key(meta)
         else:
             display = self._apply_hist_eq(image) if self._hist_eq_enabled else image
-            cmap_name = meta.colormap if meta and meta.colormap else self._colormap_name
-            cmap = pg.colormap.get(cmap_name, source="matplotlib")
-            lut = cmap.getLookupTable(nPts=256)
-            self._image_item.setImage(display, autoLevels=True)
-            self._image_item.setLookupTable(lut)
-            self._update_colorbar(display, meta)
+            self._ipf_key_plot.setVisible(False)
+            if meta and meta.dtype == "discrete":
+                # Distinct colour per id — a continuous ramp made Packet/Block/
+                # Variant nearly one colour. (Per-id swatch legend still TODO.)
+                self._image_item.setImage(display, autoLevels=False, levels=(0, 255))
+                self._image_item.setLookupTable(self._categorical_lut())
+                self._colorbar_plot.setVisible(False)
+            else:
+                cmap_name = (
+                    meta.colormap if meta and meta.colormap else self._colormap_name
+                )
+                cmap = pg.colormap.get(cmap_name, source="matplotlib")
+                lut = cmap.getLookupTable(nPts=256)
+                self._image_item.setImage(display, autoLevels=True)
+                self._image_item.setLookupTable(lut)
+                self._update_colorbar(display, meta)
         self._update_boundary()
         self._update_scalebar()
         self._plot.getViewBox().autoRange(padding=0)
+
+    @staticmethod
+    def _categorical_lut() -> np.ndarray:
+        base = pg.colormap.get("tab20", source="matplotlib").getLookupTable(
+            nPts=20, alpha=False
+        )
+        return np.array([base[i % len(base)] for i in range(256)], dtype=np.ubyte)
+
+    def _update_ipf_key(self, meta: _MapPropertyMeta | None):
+        name = meta.name if meta else ""
+        if "IPF" not in name or self._ebsd_map is None:
+            self._ipf_key_plot.setVisible(False)
+            return
+        direction = _IPF_DIRECTIONS.get(name, DEFAULT_IPF_DIRECTION)
+        try:
+            img = ipf_key_image(self._ebsd_map.primary_symmetry(), direction)
+        except Exception:
+            self._ipf_key_plot.setVisible(False)
+            return
+        self._ipf_key_item.setImage(img, autoLevels=False, levels=(0, 255))
+        h, w = img.shape[:2]
+        self._ipf_key_item.setRect(0, 0, w, h)
+        self._ipf_key_plot.setVisible(True)
+        self._ipf_key_plot.getViewBox().autoRange(padding=0.02)
 
     def _on_compute_error(self, msg, generation):
         if generation != self._compute_generation:

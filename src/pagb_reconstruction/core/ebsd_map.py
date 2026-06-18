@@ -218,12 +218,16 @@ class EBSDMap(SpatialMap):
                 return self._to_grid(props[real_key])
         return np.zeros(self.shape)
 
-    def _primary_symmetry_quats(self) -> np.ndarray:
+    def primary_symmetry(self):
+        """orix point-group Symmetry of the first indexed phase (for IPF keys)."""
         phases = self.crystal_map.phases_in_data
         for pid in phases.ids:
             if pid >= 0 and phases[pid].point_group is not None:
-                return phases[pid].point_group.data
+                return phases[pid].point_group
         raise ValueError("No indexed phase with point group found")
+
+    def _primary_symmetry_quats(self) -> np.ndarray:
+        return self.primary_symmetry().data
 
     def _pair_angles(self):
         topo = self.topology

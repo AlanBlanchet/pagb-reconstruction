@@ -1,4 +1,9 @@
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from orix.plot import IPFColorKeyTSL
 from orix.quaternion import Orientation, Symmetry
 from orix.vector import Vector3d
@@ -7,11 +12,35 @@ from pagb_reconstruction.core.phase import PhaseConfig
 
 DEFAULT_IPF_DIRECTION = Vector3d.zvector()
 
+_IPF_KEY_IMAGE_CACHE: dict[tuple[str, tuple[float, float, float]], np.ndarray] = {}
+
 
 def ipf_color_key(
     symmetry: Symmetry, direction: Vector3d | None = None
 ) -> IPFColorKeyTSL:
     return IPFColorKeyTSL(symmetry, direction=direction or DEFAULT_IPF_DIRECTION)
+
+
+def ipf_key_image(
+    symmetry: Symmetry, direction: Vector3d | None = None, size_px: int = 200
+) -> np.ndarray:
+    """Render the inverse-pole-figure colour-key triangle (with crystal-direction
+    corner labels) to an RGBA uint8 image. Cached per symmetry + direction."""
+    d = direction or DEFAULT_IPF_DIRECTION
+    cache_key = (symmetry.name, tuple(np.round(d.data.flatten(), 3)))
+    cached = _IPF_KEY_IMAGE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    fig = ipf_color_key(symmetry, d).plot(return_figure=True)
+    fig.set_size_inches(size_px / 100, size_px / 100)
+    fig.set_dpi(100)
+    canvas = FigureCanvasAgg(fig)
+    canvas.draw()
+    w, h = canvas.get_width_height()
+    img = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8).reshape(h, w, 4).copy()
+    plt.close(fig)
+    _IPF_KEY_IMAGE_CACHE[cache_key] = img
+    return img
 
 
 def ipf_colors(
