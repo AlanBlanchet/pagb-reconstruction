@@ -134,10 +134,12 @@ class StatsDashboard(QWidget):
         cards_row = QHBoxLayout()
         cards_row.setSpacing(6)
         self._card_parents = StatCard("Parents")
+        self._card_coarsening = StatCard("Coarsening")
         self._card_fit = StatCard("Mean Fit")
         self._card_recon = StatCard("% Recon")
         self._card_time = StatCard("Time")
         cards_row.addWidget(self._card_parents)
+        cards_row.addWidget(self._card_coarsening)
         cards_row.addWidget(self._card_fit)
         cards_row.addWidget(self._card_recon)
         cards_row.addWidget(self._card_time)
@@ -194,6 +196,10 @@ class StatsDashboard(QWidget):
         pct_recon = float(np.sum(parent_ids >= 0) / max(len(parent_ids), 1) * 100)
 
         self._card_parents.set_value(str(n_parents))
+        n_child = len(ebsd_map.grains) if ebsd_map and ebsd_map.grains else 0
+        self._card_coarsening.set_value(
+            f"{n_child / n_parents:.1f}x" if n_parents and n_child else "-"
+        )
         self._card_fit.set_value(f"{mean_fit:.2f}\u00b0")
         self._card_recon.set_value(f"{pct_recon:.1f}%")
         self._card_time.set_value(f"{elapsed:.1f}s" if elapsed > 0 else "-")
@@ -202,7 +208,8 @@ class StatsDashboard(QWidget):
 
         sizes = np.array([int(np.sum(parent_ids == pid)) for pid in unique_parents])
         self._plot_grain_size(sizes, p)
-        self._plot_misorientation(fit_valid, p)
+        misori = ebsd_map.misorientation_angles() if ebsd_map else fit_valid
+        self._plot_misorientation(misori, p)
         self._plot_variants(result, p)
         self._plot_fit_angles(fit_valid, p)
 

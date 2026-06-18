@@ -19,6 +19,14 @@ def test_hdf5_roundtrip(sample_ebsd, tmp_path):
     assert len(reloaded.phases) == len(sample_ebsd.phases)
 
 
+def test_phase_lookup_by_id_not_index(sample_ebsd):
+    # Phase ids here are 1-based, so indexing the phase list by id is wrong.
+    assert sample_ebsd.phase_name(1) == "austenite"
+    assert sample_ebsd.phase_name(2) == "ferrite"
+    # Guard the off-by-index bug: list[1] is ferrite, not the id-1 phase.
+    assert sample_ebsd.phases[1].name != sample_ebsd.phase_name(1)
+
+
 def test_load_ang(sample_ebsd):
     assert sample_ebsd.shape == (100, 117)
     assert len(sample_ebsd.phases) == 2

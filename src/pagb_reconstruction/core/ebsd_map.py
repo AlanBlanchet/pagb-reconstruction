@@ -110,6 +110,18 @@ class EBSDMap(SpatialMap):
     def phase_ids(self) -> np.ndarray:
         return self.crystal_map.phase_id
 
+    def phase_by_id(self, phase_id: int) -> PhaseConfig | None:
+        """Look up a phase by its EBSD phase id (NOT its list position; orix
+        phase ids are not 0-based list indices)."""
+        for phase in self.phases:
+            if phase.phase_id == phase_id:
+                return phase
+        return None
+
+    def phase_name(self, phase_id: int) -> str:
+        phase = self.phase_by_id(phase_id)
+        return phase.name if phase is not None else "?"
+
     @property
     def is_sparse(self) -> bool:
         rows, cols = self.shape
@@ -219,6 +231,11 @@ class EBSDMap(SpatialMap):
             self.quaternions, topo.pairs, self._primary_symmetry_quats()
         )
         return topo, angles
+
+    def misorientation_angles(self) -> np.ndarray:
+        """Disorientation angle (deg) for every neighbouring-pixel pair — the
+        misorientation angle distribution. Distinct from reconstruction fit."""
+        return self._pair_angles()[1]
 
     def _pixel_kam(self) -> np.ndarray:
         """Per-pixel Kernel Average Misorientation in pixel-index space."""

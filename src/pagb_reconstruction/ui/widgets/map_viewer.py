@@ -450,11 +450,7 @@ class MapViewer(QWidget):
             euler = self._ebsd_map.crystal_map.rotations.to_euler(degrees=True)
             phi1, Phi, phi2 = euler[flat]
             pid = int(self._ebsd_map.phase_ids[flat])
-            pname = (
-                self._ebsd_map.phases[pid].name
-                if pid < len(self._ebsd_map.phases)
-                else "?"
-            )
+            pname = self._ebsd_map.phase_name(pid)
             bc_map = self._ebsd_map.band_contrast_map()
             iq = bc_map[y, x]
             self._status_strip.setText(

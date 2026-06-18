@@ -120,12 +120,9 @@ class MainWindow(QMainWindow):
         right_min = (240, 200)
         bottom_min = (400, 80)
 
-        dock_params = self._add_dock(
-            "Params",
-            self._param_panel,
-            Qt.DockWidgetArea.RightDockWidgetArea,
-            right_min,
-        )
+        # Right dock follows the analysis workflow, data first:
+        # Phases (what's loaded) -> OR (relationship) -> Params (tuning) ->
+        # Info (per-grain inspection).
         dock_phases = self._add_dock(
             "Phases",
             self._phase_panel,
@@ -138,6 +135,12 @@ class MainWindow(QMainWindow):
             Qt.DockWidgetArea.RightDockWidgetArea,
             right_min,
         )
+        dock_params = self._add_dock(
+            "Params",
+            self._param_panel,
+            Qt.DockWidgetArea.RightDockWidgetArea,
+            right_min,
+        )
         dock_grain_info = self._add_dock(
             "Info",
             self._grain_info,
@@ -145,10 +148,10 @@ class MainWindow(QMainWindow):
             right_min,
         )
 
-        self.tabifyDockWidget(dock_params, dock_phases)
         self.tabifyDockWidget(dock_phases, dock_or)
-        self.tabifyDockWidget(dock_or, dock_grain_info)
-        dock_params.raise_()
+        self.tabifyDockWidget(dock_or, dock_params)
+        self.tabifyDockWidget(dock_params, dock_grain_info)
+        dock_phases.raise_()
 
         dock_recon = self._add_dock(
             "Reconstruction",
@@ -480,9 +483,7 @@ class MainWindow(QMainWindow):
         euler = self._ebsd_map.crystal_map.rotations.to_euler(degrees=True)
         phi1, Phi, phi2 = euler[flat]
         pid = int(self._ebsd_map.phase_ids[flat])
-        pname = (
-            self._ebsd_map.phases[pid].name if pid < len(self._ebsd_map.phases) else "?"
-        )
+        pname = self._ebsd_map.phase_name(pid)
         bc_map = self._ebsd_map.band_contrast_map()
         iq = bc_map[y, x]
         self._status_bar.showMessage(
@@ -503,9 +504,7 @@ class MainWindow(QMainWindow):
         euler = self._ebsd_map.crystal_map.rotations.to_euler(degrees=True)
         phi1, Phi, phi2 = euler[flat]
         pid = int(self._ebsd_map.phase_ids[flat])
-        pname = (
-            self._ebsd_map.phases[pid].name if pid < len(self._ebsd_map.phases) else "?"
-        )
+        pname = self._ebsd_map.phase_name(pid)
 
         grain_id = -1
         grain = None
