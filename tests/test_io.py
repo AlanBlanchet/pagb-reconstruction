@@ -2,8 +2,21 @@ import numpy as np
 import pytest
 from pathlib import Path
 
-from pagb_reconstruction.io import load_ebsd
+from pagb_reconstruction.io import ANGLoader, CTFLoader, HDF5Loader, load_ebsd
 from pagb_reconstruction.io.reconstruction_export import ReconstructionExporter
+
+
+def test_loaders_cover_expected_formats():
+    exts = {e for L in (ANGLoader, CTFLoader, HDF5Loader) for e in L.supported_extensions}
+    assert {".ang", ".ctf", ".h5"} <= exts
+
+
+def test_hdf5_roundtrip(sample_ebsd, tmp_path):
+    out = tmp_path / "roundtrip.h5"
+    HDF5Loader().save(sample_ebsd, out)
+    reloaded = load_ebsd(out)
+    assert reloaded.shape == sample_ebsd.shape
+    assert len(reloaded.phases) == len(sample_ebsd.phases)
 
 
 def test_load_ang(sample_ebsd):

@@ -1,6 +1,35 @@
 import numpy as np
+from orix.quaternion import Orientation
 
+from pagb_reconstruction.core.orientation_relationship import OrientationRelationship
 from pagb_reconstruction.core.reconstruction import ReconstructionConfig, ReconstructionEngine
+
+
+def test_recovers_known_parents(synthetic_multi_parent):
+    """Ground-truth oracle: three known parents, each region's child grains are
+    variants of one parent. A correct reconstruction must recover exactly three
+    parents, merge each region into one, and match each known orientation.
+    Guards against the symmetry-convention bug (scramble) and over-collapse."""
+    emap, region, parents = synthetic_multi_parent
+    sym = OrientationRelationship.kurdjumov_sachs().parent_phase.symmetry
+    config = ReconstructionConfig(
+        algorithm="variant_graph", optimize_or=False, min_grain_size=2
+    )
+    result = ReconstructionEngine(emap, config).run()
+
+    n_parents = len(np.unique(result.parent_grain_ids[result.parent_grain_ids >= 0]))
+    assert n_parents == 3, f"expected 3 parent grains, got {n_parents}"
+
+    recovered = Orientation(result.parent_orientations, symmetry=sym)
+    for r in range(3):
+        mask = region == r
+        ref = Orientation(np.tile(parents[r], (mask.sum(), 1)), symmetry=sym)
+        dev = np.rad2deg(recovered[mask].angle_with(ref, degrees=False))
+        assert np.median(dev) < 3.0, f"region {r} off by {np.median(dev):.1f} deg"
+        labels = result.parent_grain_ids[mask]
+        labels = labels[labels >= 0]
+        _, counts = np.unique(labels, return_counts=True)
+        assert counts.max() / counts.sum() > 0.95, f"region {r} not one parent"
 
 
 def test_variant_graph_runs(sample_ebsd, variant_graph_result):

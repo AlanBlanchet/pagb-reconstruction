@@ -17,7 +17,6 @@ from pagb_reconstruction.core.graph import (
 )
 from pagb_reconstruction.core.orientation_relationship import OrientationRelationship
 from pagb_reconstruction.utils.array_ops import (
-    align_hemisphere,
     grain_index_map,
     remap_labels,
 )
@@ -260,20 +259,21 @@ class ReconstructionEngine:
             tolerance_deg=self._config.tolerance_deg,
         )
 
+    def _parent_symmetry_quats(self) -> np.ndarray:
+        return np.asarray(
+            self._or.parent_phase.symmetry.data, dtype=np.float64
+        ).reshape(-1, 4)
+
     def _aggregate_parent_quats(self, per_grain_parents: np.ndarray) -> np.ndarray:
         unique_labels = np.unique(self._parent_labels)
         parent_quats = np.zeros((len(unique_labels), 4))
         label_map = {l: idx for idx, l in enumerate(unique_labels)}
+        sym = self._parent_symmetry_quats()
 
         for label in unique_labels:
             members = np.where(self._parent_labels == label)[0]
-            qs = per_grain_parents[members]
-            qs = align_hemisphere(qs, qs[0])
-            mean_q = qs.mean(axis=0)
-            norm = np.linalg.norm(mean_q)
-            parent_quats[label_map[label]] = (
-                mean_q / norm if norm > 1e-10 else np.array([1, 0, 0, 0])
-            )
+            qs = np.ascontiguousarray(per_grain_parents[members], dtype=np.float64)
+            parent_quats[label_map[label]] = QuaternionOps.symmetric_mean(qs, sym)
 
         self._parent_labels = remap_labels(self._parent_labels)
         return parent_quats
@@ -361,12 +361,9 @@ class ReconstructionEngine:
                 all_candidates.append(candidates)
 
             if all_candidates:
-                all_c = np.vstack(all_candidates)
-                all_c = align_hemisphere(all_c, all_c[0])
-                mean_q = all_c.mean(axis=0)
-                norm = np.linalg.norm(mean_q)
-                parent_quats[idx] = (
-                    mean_q / norm if norm > 1e-10 else np.array([1, 0, 0, 0])
+                all_c = np.ascontiguousarray(np.vstack(all_candidates), dtype=np.float64)
+                parent_quats[idx] = QuaternionOps.symmetric_mean(
+                    all_c, self._parent_symmetry_quats()
                 )
             else:
                 parent_quats[idx] = np.array([1, 0, 0, 0])
@@ -455,7 +452,7 @@ class ReconstructionEngine:
 
             for v_idx, v_q in enumerate(variants):
                 v_ori = Orientation(v_q.reshape(1, 4))
-                predicted_child = parent_ori * v_ori
+                predicted_child = v_ori * parent_ori
                 mori = (~predicted_child) * child_ori
                 angle = float(np.abs(mori.angle.data[0])) * 180.0 / np.pi
                 if angle < best_angle:

@@ -28,6 +28,11 @@ class OrientationRelationship(Displayable):
     child_phase: PhaseConfig
     _rotation_matrix: np.ndarray | None = None
     OR_PRESETS: ClassVar[dict[str, Callable]] = {}
+    # Display order, most relevant first. KS leads: it is the standard OR for
+    # prior-austenite reconstruction in steels and the ReconstructionConfig
+    # default. Without this, presets order alphabetically by method name and
+    # the UI would default to Bain — wrong for steel.
+    PRESET_ORDER: ClassVar[tuple[str, ...]] = ("KS", "NW", "GT", "Pitsch", "Bain")
 
     DEFAULT_PARENT: ClassVar[PhaseConfig | None] = None
     DEFAULT_CHILD: ClassVar[PhaseConfig | None] = None
@@ -44,7 +49,9 @@ class OrientationRelationship(Displayable):
     def preset_names(cls) -> list[str]:
         if not cls.OR_PRESETS:
             cls._collect_presets()
-        return list(cls.OR_PRESETS)
+        ordered = [k for k in cls.PRESET_ORDER if k in cls.OR_PRESETS]
+        extras = [k for k in cls.OR_PRESETS if k not in cls.PRESET_ORDER]
+        return ordered + extras
 
     @classmethod
     def from_preset(
@@ -107,7 +114,7 @@ class OrientationRelationship(Displayable):
         seen: set[tuple[float, ...]] = set()
 
         for ps in parent_syms:
-            variant = ps * or_ori
+            variant = or_ori * ps
             q = variant.data.flatten()
             if q[0] < 0:
                 q = -q
@@ -125,7 +132,7 @@ class OrientationRelationship(Displayable):
 
         for v in variants:
             var_ori = Orientation(v.reshape(1, 4))
-            parent = child_ori * (~var_ori)
+            parent = (~var_ori) * child_ori
             q = parent.data.flatten()
             if q[0] < 0:
                 q = -q

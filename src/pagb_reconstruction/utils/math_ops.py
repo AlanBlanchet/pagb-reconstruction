@@ -142,6 +142,38 @@ def _misori_axis_angle_with_symmetry(
     return min_angle, best_axis
 
 
+@njit(cache=True)
+def _symmetric_mean(quats: np.ndarray, sym_quats: np.ndarray) -> np.ndarray:
+    """Symmetry-aware quaternion mean.
+
+    Orientations equivalent under crystal symmetry are spread across the
+    quaternion sphere; a naive mean is meaningless. Each quaternion is first
+    brought into the symmetry copy closest to a common reference (left
+    multiplication, matching orix's crystal-symmetry convention), then averaged.
+    """
+    n = quats.shape[0]
+    ref = quats[0]
+    acc = np.zeros(4)
+    for i in range(n):
+        q = quats[i]
+        best = q
+        best_dot = -2.0
+        for k in range(sym_quats.shape[0]):
+            sq = quaternion_multiply(sym_quats[k], q)
+            d = sq[0] * ref[0] + sq[1] * ref[1] + sq[2] * ref[2] + sq[3] * ref[3]
+            if d < 0:
+                sq = -sq
+                d = -d
+            if d > best_dot:
+                best_dot = d
+                best = sq
+        acc = acc + best
+    nrm = np.sqrt(acc[0] ** 2 + acc[1] ** 2 + acc[2] ** 2 + acc[3] ** 2)
+    if nrm < 1e-12:
+        return ref.copy()
+    return acc / nrm
+
+
 def _rotation_matrix_to_quat(R: np.ndarray) -> np.ndarray:
     trace = R[0, 0] + R[1, 1] + R[2, 2]
     if trace > 0:
@@ -246,6 +278,7 @@ class QuaternionOps:
     angle = staticmethod(quaternion_angle)
     multiply_batch = staticmethod(quaternion_multiply_batch)
     from_rotation_matrix = staticmethod(_rotation_matrix_to_quat)
+    symmetric_mean = staticmethod(_symmetric_mean)
 
 
 class MisorientationOps:

@@ -10,6 +10,9 @@ def test_preset_names():
     names = OrientationRelationship.preset_names()
     for key in EXPECTED_PRESETS:
         assert key in names
+    # KS must lead: it is the default OR and the UI combo selects the first
+    # entry. Alphabetical-by-method ordering would put Bain first (wrong).
+    assert names[0] == "KS"
 
 
 def test_from_preset():
