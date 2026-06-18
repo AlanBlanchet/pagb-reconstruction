@@ -111,7 +111,7 @@ class MapViewer(QWidget):
         self._colorbar_plot = self._graphics_view.addPlot()
         self._colorbar_plot.addItem(self._colorbar_item)
         self._colorbar_plot.hideAxis("bottom")
-        self._colorbar_plot.setMaximumWidth(60)
+        self._colorbar_plot.setMaximumWidth(84)
         self._colorbar_plot.setMouseEnabled(x=False, y=False)
         self._colorbar_label_min = pg.TextItem("", anchor=(0.5, 0))
         self._colorbar_label_max = pg.TextItem("", anchor=(0.5, 1))
@@ -131,7 +131,7 @@ class MapViewer(QWidget):
         self._split_combo = QComboBox()
         self._split_combo.currentTextChanged.connect(self._update_split_display)
 
-        self._scalebar_item = pg.ScaleBar(size=10, suffix="um")
+        self._scalebar_item = pg.ScaleBar(size=10, suffix="µm")
         self._scalebar_item.setParentItem(self._plot.vb)
         self._scalebar_item.anchor((1, 1), (1, 1), offset=(-20, -20))
         self._scalebar_item.hide()
@@ -214,11 +214,23 @@ class MapViewer(QWidget):
         self._display_combo.clear()
         self._split_combo.blockSignals(True)
         self._split_combo.clear()
-        for meta in EBSDMap.registered_map_properties():
-            if meta.requires_result and self._result is None:
-                continue
-            self._display_combo.addItem(meta.name)
-            self._split_combo.addItem(meta.name)
+        metas = [
+            m
+            for m in EBSDMap.registered_map_properties()
+            if not (m.requires_result and self._result is None)
+        ]
+        # Group the long flat list by category, separators between groups.
+        categories = []
+        for m in metas:
+            if m.category not in categories:
+                categories.append(m.category)
+        for ci, cat in enumerate(categories):
+            if ci > 0:
+                self._display_combo.insertSeparator(self._display_combo.count())
+            for m in metas:
+                if m.category == cat:
+                    self._display_combo.addItem(m.name)
+                    self._split_combo.addItem(m.name)
         self._display_combo.blockSignals(False)
         self._split_combo.blockSignals(False)
 
@@ -236,7 +248,13 @@ class MapViewer(QWidget):
         if self._ebsd_map:
             self._ebsd_map.set_result(result)
         self._populate_combo()
-        self._update_display()
+        # Show the result automatically — the user should not have to hunt the
+        # parent map in the list after a long compute.
+        idx = self._display_combo.findText("Parent + Boundaries")
+        if idx >= 0:
+            self._display_combo.setCurrentIndex(idx)
+        else:
+            self._update_display()
 
     def clear(self):
         self._ebsd_map = None
@@ -343,7 +361,7 @@ class MapViewer(QWidget):
             lut = cmap.getLookupTable(nPts=256)
             self._image_item.setImage(display, autoLevels=True)
             self._image_item.setLookupTable(lut)
-            self._update_colorbar(display)
+            self._update_colorbar(display, meta)
         self._update_boundary()
         self._update_scalebar()
         self._plot.getViewBox().autoRange(padding=0)
@@ -392,20 +410,33 @@ class MapViewer(QWidget):
         except KeyError:
             return np.zeros(self._ebsd_map.shape)
 
-    def _update_colorbar(self, image: np.ndarray):
-        vmin, vmax = float(np.nanmin(image)), float(np.nanmax(image))
-        gradient = np.linspace(0, 1, 256).reshape(256, 1)
-        cmap = pg.colormap.get(self._colormap_name, source="matplotlib")
+    def _update_colorbar(self, image: np.ndarray, meta: _MapPropertyMeta | None = None):
+        finite = image[np.isfinite(image)]
+        if finite.size == 0:
+            self._colorbar_plot.setVisible(False)
+            return
+        vmin, vmax = float(finite.min()), float(finite.max())
+        if vmax <= vmin:
+            vmax = vmin + 1.0
+        # Match the map's colormap so the bar and map agree.
+        cmap_name = meta.colormap if meta and meta.colormap else self._colormap_name
+        cmap = pg.colormap.get(cmap_name, source="matplotlib")
         lut = cmap.getLookupTable(nPts=256)
+        gradient = np.linspace(0, 1, 256).reshape(256, 1)
         self._colorbar_item.setImage(gradient, autoLevels=False, levels=(0, 1))
         self._colorbar_item.setLookupTable(lut)
-        self._colorbar_item.setRect(0, 0, 1, 256)
-        self._colorbar_label_min.setText(f"{vmin:.2g}")
-        self._colorbar_label_min.setPos(0.5, 0)
-        self._colorbar_label_max.setText(f"{vmax:.2g}")
-        self._colorbar_label_max.setPos(0.5, 256)
+        # Place the bar over the REAL data range so the left axis reads in data
+        # units (not the 0-256 LUT row index).
+        self._colorbar_item.setRect(0, vmin, 1, vmax - vmin)
+        self._colorbar_label_min.setText("")
+        self._colorbar_label_max.setText("")
+        # Units on the vertical axis label (won't clip like a narrow title).
+        self._colorbar_plot.setLabel(
+            "left", meta.name if meta else "value", units=meta.unit if meta else None
+        )
+        self._colorbar_plot.showAxis("left")
         self._colorbar_plot.setVisible(True)
-        self._colorbar_plot.setYRange(0, 256)
+        self._colorbar_plot.setYRange(vmin, vmax)
         self._colorbar_plot.setXRange(0, 1)
 
     def _update_boundary(self):
@@ -430,7 +461,7 @@ class MapViewer(QWidget):
         bar_size = 10 ** int(np.log10(max(width_um / 5, 1)))
         bar_px = bar_size / step if step > 0 else 10
         self._scalebar_item.size = bar_px
-        self._scalebar_item.text.setText(f"{bar_size} um")
+        self._scalebar_item.text.setText(f"{bar_size} µm")
         self._scalebar_item.show()
 
     def _on_mouse_move(self, args):
@@ -446,7 +477,11 @@ class MapViewer(QWidget):
             self._crosshair_h.setVisible(True)
             self._crosshair_v.setVisible(True)
 
-            flat = y * cols + x
+            flat = self._ebsd_map.pixel_index_at(y, x)
+            if flat < 0:
+                self._status_strip.setText(f"  ({x}, {y})  |  not indexed")
+                self.pixel_hovered.emit(x, y)
+                return
             euler = self._ebsd_map.crystal_map.rotations.to_euler(degrees=True)
             phi1, Phi, phi2 = euler[flat]
             pid = int(self._ebsd_map.phase_ids[flat])
@@ -614,7 +649,7 @@ class MapViewer(QWidget):
         plot_widget = pg.PlotWidget()
         plot_widget.setBackground(p.surface_dim)
         plot_widget.setTitle("Misorientation along line", size="10pt")
-        plot_widget.setLabel("bottom", "Distance", units="um")
+        plot_widget.setLabel("bottom", "Distance", units="µm")
         plot_widget.setLabel("left", "Misorientation", units="\u00b0")
         plot_widget.showGrid(x=True, y=True, alpha=0.2)
         plot_widget.plot(distances, angles, pen=pg.mkPen(p.accent, width=2))

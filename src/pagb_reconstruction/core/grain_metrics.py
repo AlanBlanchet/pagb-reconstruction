@@ -1,6 +1,7 @@
 from typing import Literal
 
 import numpy as np
+from pydantic import Field
 
 from pagb_reconstruction.core.base import Displayable
 
@@ -17,14 +18,22 @@ class GrainSizeResult(Displayable):
 
 class GrainMetrics(Displayable):
     method: Literal["area", "intercept"] = "intercept"
-    n_lines: int = 50
-    step_size_um: float = 1.0
+    n_lines: int = Field(default=50, title="Test lines")
+    step_size_um: float = Field(default=1.0, title="Step size (µm)")
 
     def measure(self, grain_map: np.ndarray, step_size: float = 0.0):
         step = step_size if step_size > 0 else self.step_size_um
         if self.method == "intercept":
             return self._intercept(grain_map, step)
         return self._area(grain_map, step)
+
+    @staticmethod
+    def _astm_number(mean_size_um: float) -> float:
+        """ASTM E112 grain-size number from a mean lineal size in micrometres.
+        G = -6.6457 log10(L_mm) - 3.298 (log10, not log2 — log2 inflates G ~3.3x
+        into impossible values like 37)."""
+        mean_mm = max(mean_size_um / 1000.0, 1e-6)
+        return -6.6457 * float(np.log10(mean_mm)) - 3.298
 
     def _intercept(self, grain_map: np.ndarray, step: float):
         h, w = grain_map.shape
@@ -43,8 +52,7 @@ class GrainMetrics(Displayable):
                 total_cross += crossings
                 total_len += h * step
         mean_int = total_len / max(total_cross, 1)
-        mean_mm = mean_int / 1000
-        astm = -6.6457 * np.log2(max(mean_mm, 1e-6)) - 3.298
+        astm = self._astm_number(mean_int)
         return GrainSizeResult(
             mean_intercept_um=mean_int,
             astm_grain_size_number=astm,
@@ -60,8 +68,7 @@ class GrainMetrics(Displayable):
         areas = counts * step * step
         eq_diams = 2 * np.sqrt(areas / np.pi)
         mean_diam = float(eq_diams.mean())
-        mean_mm = mean_diam / 1000
-        astm = -6.6457 * np.log2(max(mean_mm, 1e-6)) - 3.298
+        astm = self._astm_number(mean_diam)
         return GrainSizeResult(
             mean_intercept_um=mean_diam,
             astm_grain_size_number=astm,

@@ -31,9 +31,11 @@ def test_area_method():
     assert result.method == "area"
 
 
-def test_astm_number_range():
+def test_astm_number_uses_log10_in_physical_range():
+    # ASTM E112: G = -6.6457*log10(L_mm) - 3.298. A 50 um mean intercept gives
+    # ~5.35; the old log2 bug gave ~25, far outside the real -3..14 range.
+    assert abs(GrainMetrics._astm_number(50.0) - 5.35) < 0.1
     grain_map = _checkerboard(10)
     for method in ("intercept", "area"):
-        gm = GrainMetrics(method=method)
-        result = gm.measure(grain_map, step_size=1.0)
-        assert np.isfinite(result.astm_grain_size_number)
+        result = GrainMetrics(method=method).measure(grain_map, step_size=1.0)
+        assert -5.0 < result.astm_grain_size_number < 20.0

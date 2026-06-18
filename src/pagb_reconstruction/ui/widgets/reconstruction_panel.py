@@ -87,6 +87,7 @@ class ReconstructionPanel(QWidget):
         self._worker: _ReconstructionWorker | None = None
         self._start_time = 0.0
         self._step_timings: list[tuple[str, float]] = []
+        self._config = ReconstructionConfig()
         self._setup_ui()
 
     def sizeHint(self):
@@ -146,6 +147,7 @@ class ReconstructionPanel(QWidget):
         self._log.clear()
         self._results_group.setVisible(False)
         self._step_timings.clear()
+        self._config = config
         self._start_time = time.monotonic()
 
         self._worker = _ReconstructionWorker(ebsd_map, config)
@@ -184,19 +186,28 @@ class ReconstructionPanel(QWidget):
             )
             fit_valid = result.fit_angles[~np.isnan(result.fit_angles)]
             mean_fit = float(np.mean(fit_valid)) if len(fit_valid) > 0 else 0
+            max_fit = float(np.max(fit_valid)) if len(fit_valid) > 0 else 0
+            tol = self._config.revert_threshold_deg
+            n_poor = int(np.sum(fit_valid > tol)) if len(fit_valid) > 0 else 0
             pct = (
                 np.sum(result.parent_grain_ids >= 0)
                 / len(result.parent_grain_ids)
                 * 100
             )
+            ok = mean_fit <= tol
+            verdict_color = "#a6e3a1" if ok else "#f9e2af"
+            verdict = "good fit" if ok else "high fit \u2014 check OR"
 
-            timing_lines = [f"  {name}: {t:.2f}s" for name, t in self._step_timings]
             self._results_label.setText(
                 f"Parent grains: {n_parents}\n"
-                f"Mean fit angle: {mean_fit:.2f}\u00b0\n"
+                f"Mean fit: {mean_fit:.2f}\u00b0  (max {max_fit:.1f}\u00b0, "
+                f"{n_poor} px > {tol:.1f}\u00b0 tol)\n"
                 f"Reconstructed: {pct:.1f}%\n"
-                f"Total time: {total_time:.1f}s\n\n"
-                f"Step timings:\n" + "\n".join(timing_lines)
+                f"Total time: {total_time:.1f}s"
+            )
+            self._results_group.setTitle(f"Results Summary \u2014 {verdict}")
+            self._results_group.setStyleSheet(
+                f"QGroupBox::title {{ color: {verdict_color}; }}"
             )
             self._results_group.setVisible(True)
         else:

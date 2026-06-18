@@ -197,6 +197,13 @@ class MainWindow(QMainWindow):
             "Log": dock_log,
         }
 
+        # The map is the product: keep the side/bottom docks compact so it gets
+        # the dominant area. Cap the right dock width so it cannot crowd the map.
+        for d in (dock_phases, dock_or, dock_params, dock_grain_info):
+            d.setMaximumWidth(380)
+        self.resizeDocks([dock_phases], [320], Qt.Orientation.Horizontal)
+        self.resizeDocks([dock_recon], [230], Qt.Orientation.Vertical)
+
         self._setup_menu()
         self._setup_toolbar()
         self._setup_statusbar()
@@ -267,12 +274,6 @@ class MainWindow(QMainWindow):
         export_data.triggered.connect(self._export_map_data)
         tools_menu.addAction(export_data)
 
-        tools_menu.addSeparator()
-        line_profile_action = QAction("Misorientation Line Profile", self)
-        line_profile_action.setShortcut(QKeySequence("L"))
-        line_profile_action.triggered.connect(self._map_viewer.toggle_line_mode)
-        tools_menu.addAction(line_profile_action)
-
         help_menu = menu_bar.addMenu("&Help")
         bug_action = QAction("Report &Bug...", self)
         bug_action.triggered.connect(self._report_bug)
@@ -285,7 +286,9 @@ class MainWindow(QMainWindow):
     def _setup_toolbar(self):
         toolbar = QToolBar("Main Toolbar")
         toolbar.setObjectName("main_toolbar")
-        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        # Label every action: icon-only left Run as an unidentifiable play glyph
+        # and made Zoom/Export icons ambiguous.
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.addToolBar(toolbar)
 
         style = self.style()
@@ -396,6 +399,13 @@ class MainWindow(QMainWindow):
         self._map_viewer._split_combo.setToolTip("Split display mode")
         self._map_viewer._split_combo.setVisible(False)
         toolbar.addWidget(self._map_viewer._split_combo)
+
+        line_action = QAction("Line Profile", self)
+        line_action.setToolTip("Draw a misorientation line profile on the map (L)")
+        line_action.setCheckable(True)
+        line_action.setShortcut(QKeySequence("L"))
+        line_action.toggled.connect(self._map_viewer.toggle_line_mode)
+        toolbar.addAction(line_action)
 
         roi_action = QAction("ROI", self)
         roi_action.setToolTip("Draw region of interest")
@@ -559,8 +569,8 @@ class MainWindow(QMainWindow):
             for k in ("Parent Grain ID", "Variant ID", "Fit Angle"):
                 self._grain_labels[k].setText("-")
             self._map_viewer.clear_highlight()
-
-        self._docks["Grain Info"].raise_()
+        # Info dock updates in place; do NOT force-raise it on every click — that
+        # stole focus and trapped the user on the Info tab (and used a wrong key).
 
     def _open_file(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -631,7 +641,8 @@ class MainWindow(QMainWindow):
         if result.optimized_or is not None:
             self._or_panel.set_optimized_or(result.optimized_or)
         self._pole_figure.set_orientations(result.parent_orientations)
-        n_parents = len(set(result.parent_grain_ids.tolist()))
+        pids = result.parent_grain_ids
+        n_parents = len(np.unique(pids[pids >= 0]))
         fit_valid = result.fit_angles[~np.isnan(result.fit_angles)]
         q = (
             np.percentile(fit_valid, [25, 50, 75, 90, 95])
