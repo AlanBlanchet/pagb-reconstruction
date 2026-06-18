@@ -14,3 +14,6 @@ _version.py
 *.AppImage
 *.spec.bak
 dist-test/
+
+# Dev/visual-critic capture output (never ship in releases)
+.github/audit/
