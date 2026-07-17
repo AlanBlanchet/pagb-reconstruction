@@ -272,11 +272,51 @@ def _build_variant_edges(
     return rows, cols, weights
 
 
+def quaternion_multiply_nd(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Hamilton product broadcast over arbitrary leading dims; ``a``, ``b`` are
+    ``(..., 4)`` and broadcast together. Same convention as
+    :func:`quaternion_multiply` and orix ``a * b`` — verified identical — but
+    fully vectorised, replacing per-element Python/orix loops."""
+    aw, ax, ay, az = a[..., 0], a[..., 1], a[..., 2], a[..., 3]
+    bw, bx, by, bz = b[..., 0], b[..., 1], b[..., 2], b[..., 3]
+    return np.stack(
+        [
+            aw * bw - ax * bx - ay * by - az * bz,
+            aw * bx + ax * bw + ay * bz - az * by,
+            aw * by - ax * bz + ay * bw + az * bx,
+            aw * bz + ax * by - ay * bx + az * bw,
+        ],
+        axis=-1,
+    )
+
+
+def quaternion_conjugate_nd(q: np.ndarray) -> np.ndarray:
+    out = q.copy()
+    out[..., 1:] *= -1
+    return out
+
+
+def disorientation_deg_nd(
+    q1: np.ndarray, q2: np.ndarray, sym_quats: np.ndarray
+) -> np.ndarray:
+    """One-sided symmetry-reduced disorientation angle (deg), broadcast. ``q1``,
+    ``q2`` are ``(..., 4)``; ``sym_quats`` is ``(S, 4)``. Matches the numba
+    :func:`_misori_angle_simple` (symmetry applied on the left only), batched."""
+    mori = quaternion_multiply_nd(q1, quaternion_conjugate_nd(q2))
+    # sym (S,4) broadcasts against mori[...,None,:] (...,1,4) -> (...,S,4)
+    equiv_w = quaternion_multiply_nd(sym_quats, mori[..., None, :])[..., 0]
+    w = np.clip(np.abs(equiv_w), 0.0, 1.0)
+    return np.degrees(2.0 * np.arccos(w)).min(axis=-1)
+
+
 class QuaternionOps:
     multiply = staticmethod(quaternion_multiply)
     conjugate = staticmethod(quaternion_conjugate)
     angle = staticmethod(quaternion_angle)
     multiply_batch = staticmethod(quaternion_multiply_batch)
+    multiply_nd = staticmethod(quaternion_multiply_nd)
+    conjugate_nd = staticmethod(quaternion_conjugate_nd)
+    disorientation_deg_nd = staticmethod(disorientation_deg_nd)
     from_rotation_matrix = staticmethod(_rotation_matrix_to_quat)
     symmetric_mean = staticmethod(_symmetric_mean)
 

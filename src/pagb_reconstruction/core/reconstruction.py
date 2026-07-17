@@ -1,7 +1,6 @@
 from typing import Literal
 
 import numpy as np
-from orix.quaternion import Orientation
 from pydantic import Field
 from scipy.optimize import minimize
 
@@ -502,6 +501,23 @@ class ReconstructionEngine:
         if small.size:
             labels[np.isin(labels, small)] = -1
 
+    def _grain_parent_child(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Per-grain (parent_q, child_q, valid) arrays for the vectorised
+        variant/fit passes. ``valid`` is False for grains with no assigned
+        parent (unreconstructed / out-of-range label)."""
+        n = len(self._grains)
+        parent = np.zeros((n, 4))
+        child = np.zeros((n, 4))
+        valid = np.zeros(n, dtype=bool)
+        pl, pq = self._parent_labels, self._parent_quats
+        for i, grain in enumerate(self._grains):
+            label = pl[i] if i < len(pl) else -1
+            if 0 <= label < len(pq):
+                parent[i] = pq[label]
+                child[i] = grain.mean_quaternion
+                valid[i] = True
+        return parent, child, valid
+
     def _compute_variants(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         n_pixels = self._map.quaternions.shape[0]
         variant_ids = np.zeros(n_pixels, dtype=np.int32)
@@ -509,41 +525,29 @@ class ReconstructionEngine:
         block_ids = np.zeros(n_pixels, dtype=np.int32)
         bain_ids = np.zeros(n_pixels, dtype=np.int32)
 
-        variants = self._or.variant_quaternions()
+        variants = self._or.variant_quaternions()  # (K, 4)
         n_variants = len(variants)
+        parent, child, valid = self._grain_parent_child()
 
-        for grain_idx, grain in enumerate(self._grains):
-            parent_label = (
-                self._parent_labels[grain_idx]
-                if grain_idx < len(self._parent_labels)
-                else 0
-            )
-            if not 0 <= parent_label < len(self._parent_quats):
+        # Vectorised over all grains × variants: predicted child = variant∘parent,
+        # then the raw disorientation to the measured child; best variant = argmax
+        # |w| (== min angle). Replaces a per-grain per-variant orix-object loop.
+        predicted = QuaternionOps.multiply_nd(variants[None, :, :], parent[:, None, :])
+        mori = QuaternionOps.multiply_nd(
+            QuaternionOps.conjugate_nd(predicted), child[:, None, :]
+        )
+        best = np.argmax(np.abs(mori[..., 0]), axis=1).astype(np.int32)
+
+        variants_per_packet = max(n_variants // 4, 1)
+        n_bain = min(n_variants, 3)
+        for i, grain in enumerate(self._grains):
+            if not valid[i]:
                 continue
-            parent_q = self._parent_quats[parent_label]
-
-            child_q = grain.mean_quaternion
-            child_ori = Orientation(child_q.reshape(1, 4))
-            parent_ori = Orientation(parent_q.reshape(1, 4))
-
-            best_variant = 0
-            best_angle = 999.0
-
-            for v_idx, v_q in enumerate(variants):
-                v_ori = Orientation(v_q.reshape(1, 4))
-                predicted_child = v_ori * parent_ori
-                mori = (~predicted_child) * child_ori
-                angle = float(np.abs(mori.angle.data[0])) * 180.0 / np.pi
-                if angle < best_angle:
-                    best_angle = angle
-                    best_variant = v_idx
-
-            variant_ids[grain.pixel_indices] = best_variant
-            variants_per_packet = max(n_variants // 4, 1)
-            n_bain = min(n_variants, 3)
-            packet_ids[grain.pixel_indices] = best_variant // variants_per_packet
-            block_ids[grain.pixel_indices] = best_variant // 2
-            bain_ids[grain.pixel_indices] = best_variant % n_bain
+            b = int(best[i])
+            variant_ids[grain.pixel_indices] = b
+            packet_ids[grain.pixel_indices] = b // variants_per_packet
+            block_ids[grain.pixel_indices] = b // 2
+            bain_ids[grain.pixel_indices] = b % n_bain
 
         return variant_ids, packet_ids, block_ids, bain_ids
 
@@ -552,22 +556,23 @@ class ReconstructionEngine:
         fit = np.full(n_pixels, np.nan)
         sym_quats = self._map._primary_symmetry_quats()
 
-        for grain_idx, grain in enumerate(self._grains):
-            parent_label = (
-                self._parent_labels[grain_idx]
-                if grain_idx < len(self._parent_labels)
-                else 0
-            )
-            if not 0 <= parent_label < len(self._parent_quats):
-                continue
-            parent_q = self._parent_quats[parent_label]
-            candidates = self._or.candidate_parents(grain.mean_quaternion)
-            if len(candidates) == 0:
-                continue
-            deviations = [
-                MisorientationOps.pair(c, parent_q, sym_quats) for c in candidates
-            ]
-            fit[grain.pixel_indices] = np.min(deviations)
+        variants = self._or.variant_quaternions()  # (K, 4)
+        parent, child, valid = self._grain_parent_child()
+
+        # Vectorised: candidate parents (~variant ∘ child) for every grain, then
+        # the symmetry-reduced disorientation to the assigned parent; fit = the
+        # closest candidate. Replaces a per-grain orix candidate_parents loop.
+        candidates = QuaternionOps.multiply_nd(
+            QuaternionOps.conjugate_nd(variants)[None, :, :], child[:, None, :]
+        )  # (n, K, 4)
+        dev = QuaternionOps.disorientation_deg_nd(
+            candidates, parent[:, None, :], sym_quats
+        )  # (n, K)
+        fit_per_grain = dev.min(axis=1)
+
+        for i, grain in enumerate(self._grains):
+            if valid[i]:
+                fit[grain.pixel_indices] = fit_per_grain[i]
 
         return fit
 
