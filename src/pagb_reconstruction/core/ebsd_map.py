@@ -127,6 +127,27 @@ class EBSDMap(SpatialMap):
         rows, cols = self.shape
         return self.crystal_map.size != rows * cols
 
+    @property
+    def indexed_grid_mask(self) -> np.ndarray:
+        """Grid-shaped bool mask: True where a measured, indexed point exists
+        (present in the crystal map AND phase_id >= 0). Non-indexed points —
+        absent from a sparse map, or phase -1 in a dense one — are False."""
+        ok = self._to_grid((self.crystal_map.phase_id >= 0).astype(np.uint8))
+        return ok.astype(bool)
+
+    def _fill_unindexed(self, grid: np.ndarray) -> np.ndarray:
+        """DISPLAY cleanup: paint non-indexed points with their nearest indexed
+        neighbour's value (the standard EBSD map clean-up). Scan data is never
+        modified — only the rendered map; a scan with no indexed point at all
+        is returned unchanged."""
+        mask = self.indexed_grid_mask
+        if mask.all() or not mask.any():
+            return grid
+        from scipy.ndimage import distance_transform_edt
+
+        idx = distance_transform_edt(~mask, return_distances=False, return_indices=True)
+        return grid[tuple(idx)]
+
     def _to_grid(self, data: np.ndarray, fill: float = 0.0) -> np.ndarray:
         if not self.is_sparse:
             if data.ndim == 1:
@@ -163,7 +184,7 @@ class EBSDMap(SpatialMap):
             mask = phase_ids == phase.phase_id
             color = matplotlib.colors.to_rgb(phase.color)
             rgb[mask] = color
-        return self._to_grid(rgb)
+        return self._fill_unindexed(self._to_grid(rgb))
 
     @map_property("IPF-Z", dtype="rgb", category="orientation")
     def ipf_z_map(self) -> np.ndarray:
@@ -192,12 +213,12 @@ class EBSDMap(SpatialMap):
             rotations = self.crystal_map[mask].rotations
             ori = Orientation(rotations, symmetry=phases[pid].point_group)
             rgb[mask] = ipf_colors(ori, direction)
-        return self._to_grid(rgb)
+        return self._fill_unindexed(self._to_grid(rgb))
 
     @map_property("Euler Angles", dtype="rgb", category="orientation")
     def euler_angle_map(self) -> np.ndarray:
         euler = self.crystal_map.rotations.to_euler(degrees=True)
-        return self._to_grid(euler)
+        return self._fill_unindexed(self._to_grid(euler))
 
     @map_property("Grain ID", dtype="discrete", category="microstructure")
     def grain_id_map(self) -> np.ndarray:
@@ -334,12 +355,12 @@ class EBSDMap(SpatialMap):
     )
     def parent_boundary_map(self) -> np.ndarray:
         parent_ids = self._to_grid(self._result.parent_grain_ids, fill=-1)
-        unique_ids = np.unique(parent_ids)
         cmap = matplotlib.colormaps["tab20"]
-        rgb = np.zeros((*self.shape, 3))
-        for i, gid in enumerate(unique_ids):
-            color = cmap(i % 20)[:3]
-            rgb[parent_ids == gid] = color
+        # Unreconstructed pixels (id < 0) stay a NEUTRAL grey — colouring them
+        # from the palette painted a near-empty result as one giant fake grain.
+        rgb = np.full((*self.shape, 3), 0.18)
+        for i, gid in enumerate(np.unique(parent_ids[parent_ids >= 0])):
+            rgb[parent_ids == gid] = cmap(i % 20)[:3]
         boundary = boundaries_from_2d(parent_ids)
         rgb[boundary] = 0.0
         return rgb

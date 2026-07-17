@@ -32,6 +32,9 @@ jobs:
       - name: Build with PyInstaller
         run: uv run pyinstaller pagb.spec --noconfirm
 
+      - name: Frozen-launch smoke (catches missing bundled assets)
+        run: QT_QPA_PLATFORM=offscreen ./dist/pagb-reconstruction/pagb-reconstruction --smoke
+
       - name: Build AppImage
         run: uv run bash packaging/build-appimage.sh
         env:
@@ -69,6 +72,10 @@ jobs:
 
       - name: Build with PyInstaller (onefile)
         run: uv run pyinstaller pagb-onefile.spec --noconfirm --distpath dist-onefile
+
+      - name: Frozen-launch smoke (catches missing bundled assets)
+        run: dist\pagb-reconstruction\pagb-reconstruction.exe --smoke
+        shell: cmd
 
       - name: Package Windows archive
         run: Compress-Archive -Path dist\pagb-reconstruction -DestinationPath pagb-reconstruction-windows-x86_64.zip

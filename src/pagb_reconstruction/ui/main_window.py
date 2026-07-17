@@ -666,9 +666,20 @@ class MainWindow(QMainWindow):
         pct_recon = (
             np.sum(result.parent_grain_ids >= 0) / len(result.parent_grain_ids) * 100
         )
+        # Mean parent size in µm (equivalent circle diameter) — the number the
+        # metallurgist checks against the expected grain size of the material.
+        dy_um, dx_um = self._ebsd_map.step_size
+        labelled = pids[pids >= 0]
+        if len(labelled):
+            areas_px = np.bincount(labelled)
+            areas_um2 = areas_px[areas_px > 0] * dx_um * dy_um
+            ecd = np.sqrt(4.0 * areas_um2 / np.pi)
+            size_note = f", mean parent size {np.mean(ecd):.1f} µm (median {np.median(ecd):.1f})"
+        else:
+            size_note = ""
         summary = (
             f"Reconstruction complete — {n_parents} parent grains, "
-            f"{pct_recon:.1f}% reconstructed in {elapsed:.1f}s"
+            f"{pct_recon:.1f}% reconstructed in {elapsed:.1f}s{size_note}"
         )
         self._status_bar.showMessage(summary)
         self._perf_label.setText(f"{elapsed:.1f}s")
