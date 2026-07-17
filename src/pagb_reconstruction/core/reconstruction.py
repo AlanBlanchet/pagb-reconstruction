@@ -54,7 +54,9 @@ class ReconstructionConfig(Displayable):
     )
     min_grain_size: int = Field(
         default=5,
-        description="Minimum grain size in pixels; smaller regions are discarded",
+        title="Min. child grain (px)",
+        description="Minimum child (martensite/bainite) grain size in pixels during "
+        "grain detection; smaller regions are discarded as noise before clustering",
     )
     revert_threshold_deg: float = Field(
         default=5.0,
@@ -66,6 +68,7 @@ class ReconstructionConfig(Displayable):
     )
     merge_inclusions_max_size: int = Field(
         default=50,
+        title="Merge islands ≤ (px)",
         description="Parent clusters smaller than this (total pixels) are merged into neighbors",
     )
     n_vote_iterations: int = Field(
@@ -73,8 +76,22 @@ class ReconstructionConfig(Displayable):
         description="Number of neighbor-voting iterations for filling unlabeled grains",
     )
     min_cluster_size: int = Field(
-        default=15,
-        description="Minimum parent cluster size; smaller clusters are reassigned",
+        default=1,
+        ge=1,
+        le=200,
+        title="Min. cluster size (grains)",
+        description="Minimum child grains per parent cluster; smaller clusters are "
+        "reverted to unreconstructed. 1 = off (Niessen et al. 2022 use 15 on large "
+        "maps). Raise to drop under-sampled clusters.",
+    )
+    min_parent_size_um: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=50.0,
+        title="Min. parent grain size (µm)",
+        description="Removes reconstructed parent grains smaller than this (µm "
+        "equivalent circle diameter) — the noise islands. 0 = off. Prior austenite "
+        "is typically 15–50 µm (Cayron 2006; Taylor et al. 2024).",
     )
 
 
@@ -174,6 +191,9 @@ class ReconstructionEngine:
         _progress("Merging inclusions", 0.85)
         self._merge_inclusions()
 
+        _progress("Removing noise islands", 0.9)
+        self._prune_noise()
+
         fit_angles = self._compute_fit_angles()
 
         _progress("Computing variants", 0.95)
@@ -213,6 +233,9 @@ class ReconstructionEngine:
 
         _progress("Merging inclusions", 0.9)
         self._merge_inclusions()
+
+        _progress("Removing noise islands", 0.93)
+        self._prune_noise()
 
         _progress("Computing variants", 0.95)
         variant_ids, packet_ids, block_ids, bain_ids = self._compute_variants()
@@ -423,6 +446,51 @@ class ReconstructionEngine:
                 if neighbor_labels:
                     self._parent_labels[indices] = next(iter(neighbor_labels))
 
+    def _prune_noise(self):
+        """Drop noise: revert under-sized clusters, then remove sub-µm parent
+        islands. Shared post-clustering step for both reconstruction algorithms."""
+        self._revert_small_clusters()
+        self._remove_small_parents()
+
+    def _revert_small_clusters(self):
+        """Revert parent clusters with fewer than ``min_cluster_size`` child
+        grains to unreconstructed (label -1). Wires the previously-inert
+        ``min_cluster_size`` field (Niessen et al. 2022, clusterSize revert)."""
+        if self._config.min_cluster_size <= 1:
+            return
+        labels = self._parent_labels
+        mask = labels >= 0
+        if not mask.any():
+            return
+        counts = np.bincount(labels[mask])
+        small = np.where(counts < self._config.min_cluster_size)[0]
+        if small.size:
+            labels[np.isin(labels, small)] = -1
+
+    def _remove_small_parents(self):
+        """Remove reconstructed parent grains whose equivalent circle diameter is
+        below ``min_parent_size_um`` — the tiny noise islands prior-austenite
+        reconstruction leaves behind (real PAGs are ~15–50 µm). Their pixels
+        become unreconstructed (label -1)."""
+        if self._config.min_parent_size_um <= 0:
+            return
+        labels = self._parent_labels
+        mask = labels >= 0
+        if not mask.any():
+            return
+        dy_um, dx_um = self._map.step_size
+        px_area = dx_um * dy_um
+        n_labels = int(labels[mask].max()) + 1
+        area_px = np.zeros(n_labels)
+        for i in range(min(len(labels), len(self._grains))):
+            label = labels[i]
+            if label >= 0:
+                area_px[label] += self._grains[i].area
+        ecd_um = 2.0 * np.sqrt(area_px * px_area / np.pi)
+        small = np.where(ecd_um < self._config.min_parent_size_um)[0]
+        if small.size:
+            labels[np.isin(labels, small)] = -1
+
     def _compute_variants(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         n_pixels = self._map.quaternions.shape[0]
         variant_ids = np.zeros(n_pixels, dtype=np.int32)
@@ -439,7 +507,7 @@ class ReconstructionEngine:
                 if grain_idx < len(self._parent_labels)
                 else 0
             )
-            if parent_label >= len(self._parent_quats):
+            if not 0 <= parent_label < len(self._parent_quats):
                 continue
             parent_q = self._parent_quats[parent_label]
 
@@ -479,7 +547,7 @@ class ReconstructionEngine:
                 if grain_idx < len(self._parent_labels)
                 else 0
             )
-            if parent_label >= len(self._parent_quats):
+            if not 0 <= parent_label < len(self._parent_quats):
                 continue
             parent_q = self._parent_quats[parent_label]
             candidates = self._or.candidate_parents(grain.mean_quaternion)
@@ -501,7 +569,7 @@ class ReconstructionEngine:
             if i >= len(self._parent_labels):
                 continue
             label = self._parent_labels[i]
-            if label < len(parent_quats):
+            if 0 <= label < len(parent_quats):
                 result[grain.pixel_indices] = parent_quats[label]
 
         return result

@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 
 from pagb_reconstruction import __version__
 from pagb_reconstruction.core.ebsd_map import EBSDMap
+from pagb_reconstruction.core.fit_metrics import reconstruction_quality
 from pagb_reconstruction.core.reconstruction import ReconstructionConfig
 from pagb_reconstruction.core.updater import UpdateChecker
 from pagb_reconstruction.io.base import load_ebsd
@@ -655,38 +656,23 @@ class MainWindow(QMainWindow):
         if result.optimized_or is not None:
             self._or_panel.set_optimized_or(result.optimized_or)
         self._pole_figure.set_orientations(result.parent_orientations)
-        pids = result.parent_grain_ids
-        n_parents = len(np.unique(pids[pids >= 0]))
-        fit_valid = result.fit_angles[~np.isnan(result.fit_angles)]
-        q = (
-            np.percentile(fit_valid, [25, 50, 75, 90, 95])
-            if len(fit_valid) > 0
-            else [0] * 5
-        )
-        pct_recon = (
-            np.sum(result.parent_grain_ids >= 0) / len(result.parent_grain_ids) * 100
-        )
-        # Mean parent size in µm (equivalent circle diameter) — the number the
-        # metallurgist checks against the expected grain size of the material.
-        dy_um, dx_um = self._ebsd_map.step_size
-        labelled = pids[pids >= 0]
-        if len(labelled):
-            areas_px = np.bincount(labelled)
-            areas_um2 = areas_px[areas_px > 0] * dx_um * dy_um
-            ecd = np.sqrt(4.0 * areas_um2 / np.pi)
-            size_note = f", mean parent size {np.mean(ecd):.1f} µm (median {np.median(ecd):.1f})"
-        else:
-            size_note = ""
+        # Multi-metric fit readout (Taylor et al. 2024): area-weighted parent size
+        # is the headline "closeness to reality" number, alongside % reconstructed
+        # and the OR fit-angle distribution. Lets the user vary params for best fit.
+        qual = reconstruction_quality(result, self._ebsd_map.step_size)
         summary = (
-            f"Reconstruction complete — {n_parents} parent grains, "
-            f"{pct_recon:.1f}% reconstructed in {elapsed:.1f}s{size_note}"
+            f"Reconstruction complete — {qual.n_parents} parent grains, "
+            f"{qual.pct_reconstructed:.1f}% reconstructed in {elapsed:.1f}s, "
+            f"parent size {qual.area_weighted_ecd_um:.1f} µm area-weighted "
+            f"(median {qual.median_ecd_um:.1f}), mean fit {qual.mean_fit_deg:.2f}°"
         )
         self._status_bar.showMessage(summary)
         self._perf_label.setText(f"{elapsed:.1f}s")
         self._log(summary)
         self._log(
-            f"  Fit quintiles: Q25={q[0]:.2f} Q50={q[1]:.2f} "
-            f"Q75={q[2]:.2f} Q90={q[3]:.2f} Q95={q[4]:.2f}"
+            f"  Fit angle: median {qual.median_fit_deg:.2f}° "
+            f"(Q25 {qual.fit_q25_deg:.2f}, Q75 {qual.fit_q75_deg:.2f}, "
+            f"Q95 {qual.fit_q95_deg:.2f}°) — lower is closer to the ideal OR"
         )
 
     def _toggle_split(self, checked: bool):

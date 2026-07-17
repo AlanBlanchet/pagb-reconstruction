@@ -41,6 +41,20 @@ _PRESETS = {
         merge_similar_deg=10.0,
         inflation_power=1.4,
     ),
+    # Bainite has weaker variant selection than martensite (Wang et al. 2025):
+    # laths spread wider around the ideal OR variants, so grouping tolerances are
+    # looser and clustering coarser (lower inflation). NW/KS both work for bainite
+    # (Taylor et al. 2024). min_parent_size prunes sub-µm noise islands; real prior
+    # austenite is 15–50 µm.
+    "Bainite": ReconstructionConfig(
+        threshold_deg=3.5,
+        tolerance_deg=3.0,
+        grain_threshold_deg=5.0,
+        min_grain_size=5,
+        merge_similar_deg=8.0,
+        inflation_power=1.3,
+        min_parent_size_um=5.0,
+    ),
 }
 
 _FIELD_GROUPS = {
@@ -58,6 +72,7 @@ _FIELD_GROUPS = {
         "revert_threshold_deg",
         "merge_similar_deg",
         "merge_inclusions_max_size",
+        "min_parent_size_um",
         "n_vote_iterations",
     ],
 }

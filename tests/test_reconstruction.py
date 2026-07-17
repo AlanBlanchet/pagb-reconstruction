@@ -70,3 +70,64 @@ def test_variant_ids_valid(variant_graph_result, sample_ebsd):
     vids = variant_graph_result.variant_ids
     assert np.all(vids >= 0)
     assert np.all(vids < n_variants)
+
+
+def _fake_grain(gid, area, npx):
+    from pagb_reconstruction.core.grain import Grain
+
+    idx = np.arange(npx)
+    return Grain(
+        id=gid,
+        pixel_indices=idx,
+        mean_quaternion=np.array([1.0, 0.0, 0.0, 0.0]),
+        phase_id=0,
+        area=area,
+        pixel_rc=np.zeros((npx, 2), dtype=int),
+    )
+
+
+def test_revert_small_clusters_marks_tiny_clusters_unreconstructed(synthetic_multi_parent):
+    """min_cluster_size (previously a dead UI control) must revert parent
+    clusters with too few child grains to unreconstructed (label -1)."""
+    emap, _, _ = synthetic_multi_parent
+    eng = ReconstructionEngine(emap, ReconstructionConfig(min_cluster_size=3))
+    eng._grains = [_fake_grain(i + 1, 100, 100) for i in range(4)]
+    eng._parent_quats = np.array([[1.0, 0, 0, 0], [1.0, 0, 0, 0]])
+    eng._parent_labels = np.array([0, 0, 0, 1])  # cluster 0: 3 grains; cluster 1: 1 grain
+    eng._revert_small_clusters()
+    assert eng._parent_labels[3] == -1, "1-grain cluster must be reverted"
+    assert (eng._parent_labels[:3] == 0).all(), "3-grain cluster must survive"
+
+
+def test_remove_small_parents_by_micron_size(synthetic_multi_parent):
+    """min_parent_size_um removes parent grains below the µm ECD floor (noise
+    islands) while keeping real ones; step size is 1 µm in the synthetic map."""
+    emap, _, _ = synthetic_multi_parent
+    eng = ReconstructionEngine(
+        emap, ReconstructionConfig(min_parent_size_um=5.0, min_cluster_size=1)
+    )
+    # cluster 0: 300 px -> ECD ~19.5 µm (keep); cluster 1: 2 px -> ECD ~1.6 µm (remove)
+    eng._grains = [
+        _fake_grain(1, 100, 100),
+        _fake_grain(2, 100, 100),
+        _fake_grain(3, 100, 100),
+        _fake_grain(4, 2, 2),
+    ]
+    eng._parent_quats = np.array([[1.0, 0, 0, 0], [1.0, 0, 0, 0]])
+    eng._parent_labels = np.array([0, 0, 0, 1])
+    eng._remove_small_parents()
+    assert eng._parent_labels[3] == -1, "sub-µm-floor parent must be removed"
+    assert (eng._parent_labels[:3] == 0).all(), "large parent must survive"
+
+
+def test_size_filters_disabled_are_noops(synthetic_multi_parent):
+    emap, _, _ = synthetic_multi_parent
+    eng = ReconstructionEngine(
+        emap, ReconstructionConfig(min_parent_size_um=0.0, min_cluster_size=1)
+    )
+    eng._grains = [_fake_grain(1, 2, 2)]
+    eng._parent_quats = np.array([[1.0, 0, 0, 0]])
+    eng._parent_labels = np.array([0])
+    eng._revert_small_clusters()
+    eng._remove_small_parents()
+    assert eng._parent_labels[0] == 0, "disabled filters must not remove anything"
