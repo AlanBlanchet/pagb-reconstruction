@@ -3,11 +3,14 @@ import pyqtgraph as pg
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -21,32 +24,23 @@ from pagb_reconstruction.ui.theme import active_theme
 class StatCard(QWidget):
     def __init__(self, label: str, value: str = "-"):
         super().__init__()
-        self.setFixedSize(80, 60)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setFixedHeight(64)
+        self.setMinimumWidth(70)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(2)
 
         self._label = QLabel(label)
+        self._label.setObjectName("statLabel")
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._label.setStyleSheet("font-size: 9px;")
         layout.addWidget(self._label)
 
         self._value = QLabel(value)
+        self._value.setObjectName("statValue")
         self._value.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._value.setStyleSheet("font-size: 14px; font-weight: bold;")
         layout.addWidget(self._value)
-
-        self._apply_style()
-
-    def _apply_style(self):
-        p = active_theme()
-        self.setStyleSheet(
-            f"StatCard {{ background: {p.surface}; border-radius: 6px; }}"
-        )
-        self._label.setStyleSheet(f"font-size: 9px; color: {p.text_muted};")
-        self._value.setStyleSheet(
-            f"font-size: 14px; font-weight: bold; color: {p.accent};"
-        )
 
     def set_value(self, text: str):
         self._value.setText(text)
@@ -127,7 +121,15 @@ class StatsDashboard(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        outer.addWidget(scroll)
+        inner = QWidget()
+        scroll.setWidget(inner)
+        layout = QVBoxLayout(inner)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(6)
 
@@ -143,7 +145,6 @@ class StatsDashboard(QWidget):
         cards_row.addWidget(self._card_fit)
         cards_row.addWidget(self._card_recon)
         cards_row.addWidget(self._card_time)
-        cards_row.addStretch()
         layout.addLayout(cards_row)
 
         metrics_group = QGroupBox("Grain Size Measurement")

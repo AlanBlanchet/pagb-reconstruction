@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 
 from pagb_reconstruction.core.reconstruction import ReconstructionConfig
 from pagb_reconstruction.ui.model_widget import _unwrap_optional
-from pagb_reconstruction.ui.theme import active_theme
+from pagb_reconstruction.ui.theme import active_theme, icon
 
 _PRESETS = {
     "Default": ReconstructionConfig(),
@@ -62,10 +62,10 @@ _FIELD_GROUPS = {
     ],
 }
 
-_GROUP_COLORS = {
-    "Grain Detection": "success",
-    "Clustering": "accent",
-    "Post-processing": "warning",
+_GROUP_ICONS = {
+    "Grain Detection": "grain",
+    "Clustering": "layers",
+    "Post-processing": "params",
 }
 
 
@@ -202,54 +202,46 @@ class SegmentedControl(QWidget):
         self.selection_changed.emit(self._buttons[index].text())
 
     def _apply_styles(self):
-        p = active_theme()
         for i, btn in enumerate(self._buttons):
-            if i == self._active_index:
-                btn.setStyleSheet(
-                    f"background: {p.accent}; color: {p.bg}; "
-                    f"border-radius: 4px; padding: 4px 10px; font-weight: bold; font-size: 11px;"
-                )
-            else:
-                btn.setStyleSheet(
-                    f"background: {p.surface}; color: {p.text_muted}; "
-                    f"border-radius: 4px; padding: 4px 10px; font-size: 11px;"
-                )
+            btn.setProperty("active", "true" if i == self._active_index else "false")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
 
     def current_text(self) -> str:
         return self._buttons[self._active_index].text()
 
 
 class CollapsibleCard(QWidget):
-    def __init__(self, title: str, accent_color: str, parent: QWidget | None = None):
+    def __init__(self, title: str, icon_name: str | None = None, parent: QWidget | None = None):
         super().__init__(parent)
         self._expanded = True
-        self._accent_color = accent_color
+        p = active_theme()
 
         self._main_layout = QVBoxLayout(self)
         self._main_layout.setContentsMargins(0, 0, 0, 0)
         self._main_layout.setSpacing(0)
 
         self._frame = QFrame()
-        self._frame.setStyleSheet(
-            f"QFrame {{ border: 1px solid {active_theme().border}; "
-            f"border-left: 3px solid {accent_color}; border-radius: 6px; }}"
-        )
+        self._frame.setObjectName("cardFrame")
         frame_layout = QVBoxLayout(self._frame)
-        frame_layout.setContentsMargins(8, 4, 8, 4)
+        frame_layout.setContentsMargins(10, 6, 10, 6)
         frame_layout.setSpacing(4)
 
         header = QWidget()
         header.setCursor(Qt.CursorShape.PointingHandCursor)
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(6)
+        if icon_name:
+            _ic = QLabel()
+            _ic.setPixmap(icon(icon_name, color=p.text_muted).pixmap(14, 14))
+            header_layout.addWidget(_ic)
         self._title_label = QLabel(title)
-        self._title_label.setStyleSheet(
-            f"font-weight: bold; font-size: 11px; color: {accent_color};"
-        )
+        self._title_label.setObjectName("cardTitle")
         header_layout.addWidget(self._title_label)
         header_layout.addStretch()
-        self._chevron = QLabel("\u25bc")
-        self._chevron.setStyleSheet("font-size: 9px;")
+        self._chevron = QLabel()
+        self._chevron.setPixmap(icon("chevron_down", color=p.text_muted).pixmap(12, 12))
         header_layout.addWidget(self._chevron)
         header.mousePressEvent = lambda e: self.set_expanded(not self._expanded)
         frame_layout.addWidget(header)
@@ -268,7 +260,8 @@ class CollapsibleCard(QWidget):
     def set_expanded(self, expanded: bool):
         self._expanded = expanded
         self._content.setVisible(expanded)
-        self._chevron.setText("\u25bc" if expanded else "\u25b6")
+        _name = "chevron_down" if expanded else "chevron_right"
+        self._chevron.setPixmap(icon(_name, color=active_theme().text_muted).pixmap(12, 12))
 
 
 class ParamPanel(QWidget):
@@ -309,17 +302,8 @@ class ParamPanel(QWidget):
                 item.widget().deleteLater()
         self._field_widgets.clear()
 
-        p = active_theme()
-        color_map = {
-            "success": p.success,
-            "accent": p.accent,
-            "warning": p.warning,
-        }
-
         for group_name, fields in _FIELD_GROUPS.items():
-            accent_key = _GROUP_COLORS.get(group_name, "accent")
-            accent_color = color_map.get(accent_key, p.accent)
-            card = CollapsibleCard(group_name, accent_color)
+            card = CollapsibleCard(group_name, _GROUP_ICONS.get(group_name))
 
             for field_name in fields:
                 field_info = ReconstructionConfig.model_fields.get(field_name)

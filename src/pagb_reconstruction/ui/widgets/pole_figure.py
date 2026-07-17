@@ -4,13 +4,7 @@ from orix.vector import Vector3d
 from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QVBoxLayout, QWidget
 from scipy.stats import gaussian_kde
 
-from pagb_reconstruction.ui.theme import (
-    ACCENT,
-    DARK_BG,
-    DARK_FG,
-    GRID_COLOR,
-    create_dark_figure,
-)
+from pagb_reconstruction.ui.theme import active_theme, create_figure
 
 
 class PoleFigureWidget(QWidget):
@@ -39,7 +33,7 @@ class PoleFigureWidget(QWidget):
 
         layout.addLayout(controls)
 
-        self._figure, self._canvas = create_dark_figure(figsize=(4, 4))
+        self._figure, self._canvas = create_figure(figsize=(4, 4))
         layout.addWidget(self._canvas, 1)
 
         self._orientations: np.ndarray | None = None
@@ -51,11 +45,12 @@ class PoleFigureWidget(QWidget):
     def _replot(self):
         self._figure.clear()
         ax = self._figure.add_subplot(111, projection="polar")
-        ax.set_facecolor(DARK_BG)
-        ax.tick_params(colors=DARK_FG, labelsize=7)
+        p = active_theme()
+        ax.set_facecolor(p.surface_dim)
+        ax.tick_params(colors=p.fg, labelsize=7)
         ax.set_title(
             f"Pole Figure {self._hkl_combo.currentText()}",
-            color=DARK_FG,
+            color=p.fg,
             fontsize=10,
             pad=12,
         )
@@ -91,21 +86,21 @@ class PoleFigureWidget(QWidget):
                     cs = ax.contourf(Ai, Ri, Zi, levels=15, cmap="magma")
                     self._figure.colorbar(cs, ax=ax, pad=0.1, shrink=0.8)
                 except np.linalg.LinAlgError:
-                    ax.scatter(azimuth, polar, s=1, alpha=0.3, c=ACCENT)
+                    ax.scatter(azimuth, polar, s=1, alpha=0.3, c=p.accent)
             else:
-                ax.scatter(azimuth, polar, s=1, alpha=0.3, c=ACCENT)
+                ax.scatter(azimuth, polar, s=1, alpha=0.3, c=p.accent)
 
             for label, angle_deg in [("[100]", 0), ("[010]", 90), ("[001]", 0)]:
                 ax.annotate(
                     label,
                     xy=(np.radians(angle_deg), np.pi / 2 * 0.95),
                     fontsize=7,
-                    color=DARK_FG,
+                    color=p.fg,
                     ha="center",
                 )
 
         ax.set_ylim(0, np.pi / 2)
         for spine in ax.spines.values():
-            spine.set_color(GRID_COLOR)
+            spine.set_color(p.border)
         self._figure.tight_layout()
         self._canvas.draw()

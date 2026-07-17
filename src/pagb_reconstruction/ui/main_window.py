@@ -16,11 +16,13 @@ from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QLabel,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
+    QScrollArea,
     QStatusBar,
     QToolBar,
     QVBoxLayout,
@@ -33,7 +35,7 @@ from pagb_reconstruction.core.reconstruction import ReconstructionConfig
 from pagb_reconstruction.core.updater import UpdateChecker
 from pagb_reconstruction.io.base import load_ebsd
 from pagb_reconstruction.io.reconstruction_export import ReconstructionExporter
-from pagb_reconstruction.ui.theme import THEMES, set_theme
+from pagb_reconstruction.ui.theme import THEMES, icon, set_theme
 from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
 from pagb_reconstruction.ui.widgets.or_panel import ORPanel
 from pagb_reconstruction.ui.widgets.param_panel import ParamPanel
@@ -141,9 +143,13 @@ class MainWindow(QMainWindow):
             Qt.DockWidgetArea.RightDockWidgetArea,
             right_min,
         )
+        _info_scroll = QScrollArea()
+        _info_scroll.setWidgetResizable(True)
+        _info_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        _info_scroll.setWidget(self._grain_info)
         dock_grain_info = self._add_dock(
             "Info",
-            self._grain_info,
+            _info_scroll,
             Qt.DockWidgetArea.RightDockWidgetArea,
             right_min,
         )
@@ -229,11 +235,13 @@ class MainWindow(QMainWindow):
         file_menu = menu_bar.addMenu("&File")
         open_action = QAction("&Open...", self)
         open_action.setShortcut(QKeySequence.StandardKey.Open)
+        open_action.setIcon(icon("open"))
         open_action.triggered.connect(self._open_file)
         file_menu.addAction(open_action)
 
         save_action = QAction("&Save...", self)
         save_action.setShortcut(QKeySequence.StandardKey.Save)
+        save_action.setIcon(icon("save"))
         save_action.triggered.connect(self._save_file)
         file_menu.addAction(save_action)
 
@@ -263,23 +271,28 @@ class MainWindow(QMainWindow):
 
         tools_menu = menu_bar.addMenu("&Tools")
         export_img = QAction("Export Image (PNG/SVG)...", self)
+        export_img.setIcon(icon("export_image"))
         export_img.triggered.connect(self._export_image)
         tools_menu.addAction(export_img)
 
         export_stats = QAction("Export Stats (CSV)...", self)
+        export_stats.setIcon(icon("export_data"))
         export_stats.triggered.connect(self._export_stats)
         tools_menu.addAction(export_stats)
 
         export_data = QAction("Export Map Data...", self)
+        export_data.setIcon(icon("export_data"))
         export_data.triggered.connect(self._export_map_data)
         tools_menu.addAction(export_data)
 
         help_menu = menu_bar.addMenu("&Help")
         bug_action = QAction("Report &Bug...", self)
+        bug_action.setIcon(icon("bug"))
         bug_action.triggered.connect(self._report_bug)
         help_menu.addAction(bug_action)
         help_menu.addSeparator()
         about_action = QAction("&About", self)
+        about_action.setIcon(icon("about"))
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
 
@@ -291,35 +304,25 @@ class MainWindow(QMainWindow):
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.addToolBar(toolbar)
 
-        style = self.style()
-
-        open_action = QAction(
-            style.standardIcon(style.StandardPixmap.SP_DialogOpenButton), "Open", self
-        )
+        open_action = QAction(icon("open"), "Open", self)
         open_action.setToolTip("Open EBSD file (Ctrl+O)")
         open_action.triggered.connect(self._open_file)
         toolbar.addAction(open_action)
 
-        save_action = QAction(
-            style.standardIcon(style.StandardPixmap.SP_DialogSaveButton), "Save", self
-        )
+        save_action = QAction(icon("save"), "Save", self)
         save_action.setToolTip("Save reconstruction data")
         save_action.triggered.connect(self._save_file)
         toolbar.addAction(save_action)
 
         toolbar.addSeparator()
 
-        run_action = QAction(
-            style.standardIcon(style.StandardPixmap.SP_MediaPlay), "Run", self
-        )
+        run_action = QAction(icon("run"), "Run", self)
         run_action.setToolTip("Run reconstruction (Ctrl+R)")
         run_action.setShortcut(QKeySequence("Ctrl+R"))
         run_action.triggered.connect(self._run_reconstruction)
         toolbar.addAction(run_action)
 
-        self._stop_action = QAction(
-            style.standardIcon(style.StandardPixmap.SP_MediaStop), "Stop", self
-        )
+        self._stop_action = QAction(icon("stop"), "Stop", self)
         self._stop_action.setToolTip("Stop reconstruction (Esc)")
         self._stop_action.setShortcut(QKeySequence("Escape"))
         self._stop_action.triggered.connect(self._reconstruction_panel._cancel)
@@ -327,46 +330,40 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        zoom_in = QAction(
-            style.standardIcon(style.StandardPixmap.SP_ArrowUp), "Zoom In", self
-        )
+        zoom_in = QAction(icon("zoom_in"), "Zoom In", self)
         zoom_in.setToolTip("Zoom in")
         zoom_in.triggered.connect(lambda: self._map_viewer.zoom(1.25))
         toolbar.addAction(zoom_in)
 
-        zoom_out = QAction(
-            style.standardIcon(style.StandardPixmap.SP_ArrowDown), "Zoom Out", self
-        )
+        zoom_out = QAction(icon("zoom_out"), "Zoom Out", self)
         zoom_out.setToolTip("Zoom out")
         zoom_out.triggered.connect(lambda: self._map_viewer.zoom(0.8))
         toolbar.addAction(zoom_out)
 
-        zoom_fit = QAction(
-            style.standardIcon(style.StandardPixmap.SP_TitleBarMaxButton), "Fit", self
-        )
+        zoom_fit = QAction(icon("fit"), "Fit", self)
         zoom_fit.setToolTip("Fit map to view")
         zoom_fit.triggered.connect(self._map_viewer.zoom_fit)
         toolbar.addAction(zoom_fit)
 
         toolbar.addSeparator()
 
-        export_img = QAction(
-            style.standardIcon(style.StandardPixmap.SP_DesktopIcon),
-            "Export Image",
-            self,
-        )
+        export_img = QAction(icon("export_image"), "Export Image", self)
         export_img.setToolTip("Export current view as image")
         export_img.triggered.connect(self._export_image)
         toolbar.addAction(export_img)
 
-        export_data = QAction(
-            style.standardIcon(style.StandardPixmap.SP_FileIcon), "Export Data", self
-        )
+        export_data = QAction(icon("export_data"), "Export Data", self)
         export_data.setToolTip("Export map data to file")
         export_data.triggered.connect(self._export_map_data)
         toolbar.addAction(export_data)
 
-        toolbar.addSeparator()
+        view_toolbar = QToolBar("View")
+        view_toolbar.setObjectName("view_toolbar")
+        view_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.addToolBarBreak()
+        self.addToolBar(view_toolbar)
+        self._view_toolbar = view_toolbar
+        toolbar = view_toolbar  # remaining view/display controls on the second row
 
         self._map_viewer._display_combo.setToolTip("Display mode")
         toolbar.addWidget(self._map_viewer._display_combo)
@@ -390,7 +387,7 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        split_action = QAction("Split", self)
+        split_action = QAction(icon("split"), "Split", self)
         split_action.setToolTip("Toggle split view for comparison")
         split_action.setCheckable(True)
         split_action.toggled.connect(self._toggle_split)
@@ -400,27 +397,27 @@ class MainWindow(QMainWindow):
         self._map_viewer._split_combo.setVisible(False)
         toolbar.addWidget(self._map_viewer._split_combo)
 
-        line_action = QAction("Line Profile", self)
+        line_action = QAction(icon("line_profile"), "Line Profile", self)
         line_action.setToolTip("Draw a misorientation line profile on the map (L)")
         line_action.setCheckable(True)
         line_action.setShortcut(QKeySequence("L"))
         line_action.toggled.connect(self._map_viewer.toggle_line_mode)
         toolbar.addAction(line_action)
 
-        roi_action = QAction("ROI", self)
+        roi_action = QAction(icon("roi"), "ROI", self)
         roi_action.setToolTip("Draw region of interest")
         roi_action.setCheckable(True)
         roi_action.toggled.connect(self._toggle_roi)
         toolbar.addAction(roi_action)
 
-        clear_roi_action = QAction("Clear ROI", self)
+        clear_roi_action = QAction(icon("clear_roi"), "Clear ROI", self)
         clear_roi_action.setToolTip("Clear current ROI selection")
         clear_roi_action.triggered.connect(self._clear_roi)
         toolbar.addAction(clear_roi_action)
 
         toolbar.addSeparator()
 
-        reset_action = QAction("Reset", self)
+        reset_action = QAction(icon("reset"), "Reset", self)
         reset_action.setToolTip("Reset all views and selections")
         reset_action.triggered.connect(self._reset)
         toolbar.addAction(reset_action)
@@ -799,6 +796,9 @@ class MainWindow(QMainWindow):
         state = self._settings.value("window_state")
         if state:
             self.restoreState(state)
+            # A pre-two-row saved state re-docks both toolbars onto one
+            # row; re-assert the break so the view toolbar keeps its row.
+            self.insertToolBarBreak(self._view_toolbar)
         else:
             self._should_hide_bottom = True
 

@@ -24,15 +24,7 @@ from pagb_reconstruction.utils.math_ops import MisorientationOps
 from pagb_reconstruction.core.base import _MapPropertyMeta
 from pagb_reconstruction.core.ebsd_map import EBSDMap
 from pagb_reconstruction.core.reconstruction import ReconstructionResult
-from pagb_reconstruction.ui.theme import (
-    ACCENT,
-    DARK_FG,
-    GRID_COLOR,
-    SURFACE_DIM,
-    TEXT_DISABLED,
-    TEXT_MUTED,
-    active_theme,
-)
+from pagb_reconstruction.ui.theme import active_theme
 from pagb_reconstruction.ui.widgets.compute_worker import ComputeWorker
 
 logger = logging.getLogger(__name__)
@@ -105,10 +97,10 @@ class MapViewer(QWidget):
         self._highlight_item.setVisible(False)
 
         self._crosshair_h = pg.InfiniteLine(
-            angle=0, pen=pg.mkPen(ACCENT, width=1, style=Qt.PenStyle.DashLine)
+            angle=0, pen=pg.mkPen(active_theme().accent, width=1, style=Qt.PenStyle.DashLine)
         )
         self._crosshair_v = pg.InfiniteLine(
-            angle=90, pen=pg.mkPen(ACCENT, width=1, style=Qt.PenStyle.DashLine)
+            angle=90, pen=pg.mkPen(active_theme().accent, width=1, style=Qt.PenStyle.DashLine)
         )
         self._crosshair_h.setVisible(False)
         self._crosshair_v.setVisible(False)
@@ -164,11 +156,8 @@ class MapViewer(QWidget):
         layout.addWidget(self._graphics_view, 1)
 
         self._computing_overlay = QLabel("", self._graphics_view)
+        self._computing_overlay.setObjectName("computingOverlay")
         self._computing_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._computing_overlay.setStyleSheet(
-            f"background: rgba(0, 0, 0, 180); color: {ACCENT}; font-size: 14px; "
-            "font-weight: bold; padding: 12px 24px; border-radius: 8px;"
-        )
         self._computing_overlay.setVisible(False)
 
         self._overlay_opacity = QGraphicsOpacityEffect(self._computing_overlay)
@@ -182,18 +171,12 @@ class MapViewer(QWidget):
 
         self._status_strip = QLabel("")
         self._status_strip.setFixedHeight(20)
-        self._status_strip.setStyleSheet(
-            f"background: {SURFACE_DIM}; color: {TEXT_MUTED}; padding: 2px 4px; "
-            f"font-size: 11px; font-family: monospace; border-top: 1px solid {GRID_COLOR};"
-        )
+        self._status_strip.setObjectName("statusStrip")
         layout.addWidget(self._status_strip)
 
         self._grain_overlay = QLabel("")
         self._grain_overlay.setWordWrap(True)
-        self._grain_overlay.setStyleSheet(
-            f"background: rgba(24,24,37,210); color: {DARK_FG}; padding: 8px 10px; "
-            f"font-size: 12px; border-radius: 6px; border: 1px solid {GRID_COLOR};"
-        )
+        self._grain_overlay.setObjectName("grainOverlay")
         self._grain_overlay.setVisible(False)
         layout.addWidget(self._grain_overlay)
 
@@ -202,10 +185,7 @@ class MapViewer(QWidget):
             "Supported formats: .ang, .ctf, .h5, .hdf5"
         )
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._placeholder.setStyleSheet(
-            f"font-size: 18px; color: {TEXT_DISABLED}; padding: 40px; "
-            f"border: 2px dashed {GRID_COLOR}; border-radius: 12px; margin: 40px;"
-        )
+        self._placeholder.setObjectName("mapPlaceholder")
         layout.addWidget(self._placeholder)
         self._graphics_view.setVisible(False)
         self._status_strip.setVisible(False)
@@ -776,7 +756,7 @@ class MapViewer(QWidget):
                 w, h = cols // 4, rows // 4
                 x, y = cols // 4, rows // 4
                 self._roi_item = pg.RectROI(
-                    [x, y], [w, h], pen=pg.mkPen(ACCENT, width=2)
+                    [x, y], [w, h], pen=pg.mkPen(active_theme().accent, width=2)
                 )
                 self._roi_item.sigRegionChanged.connect(self._on_roi_changed)
                 self._plot.addItem(self._roi_item)

@@ -17,6 +17,8 @@ dependencies = [
     "pyqtdarktheme-fork>=2.3.0",
     "pyqtgraph>=0.14.0",
     "pyside6>=6.11.0",
+    "qtawesome>=1.4.2",
+    "qtsass>=0.4.0",
     "scikit-learn>=1.7.2",
     "scipy>=1.15.3",
     "superqt>=0.8.1",
@@ -37,4 +39,8 @@ fallback-version = "0.0.0"
 version-file = "src/pagb_reconstruction/_version.py"
 
 [dependency-groups]
-dev = ["pytest>=8.0", "pyinstaller>=6.0"]
+dev = [
+    "pytest>=8.0",
+    "pyinstaller>=6.0",
+    "pytest-qt>=4.5.0",
+]

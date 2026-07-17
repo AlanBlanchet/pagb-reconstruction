@@ -1,0 +1,336 @@
+// PAGB — application stylesheet (authored in SCSS, compiled to Qt QSS at runtime).
+// Colour variables ($bg, $surface, $accent, …) are injected from the active
+// ThemePalette before compilation (see engine._scss_vars).
+//
+// Design language: "precision instrument".
+//  · Elevation = surface TONE, never coloured borders or left stripes.
+//  · $accent is reserved for the primary action, focus, and selection ONLY.
+//  · Quiet chrome; the data is the loudest thing on screen.
+
+$radius: 6px;
+$radius-sm: 4px;
+
+@mixin well {                       // recessed input field
+  background: $surface_dim;
+  border: 1px solid $border;
+  border-radius: $radius;
+}
+@mixin card {                       // raised container
+  background: $surface;
+  border: 1px solid $border;
+  border-radius: $radius;
+}
+
+// ── Base surfaces ───────────────────────────────────────────────
+QWidget { color: $fg; }
+QMainWindow, QDialog { background: $bg; }
+
+QToolTip {
+  background: $elevated;
+  color: $fg;
+  border: 1px solid $border;
+  border-radius: $radius-sm;
+  padding: 4px 8px;
+}
+
+// ── Docks ───────────────────────────────────────────────────────
+QDockWidget {
+  titlebar-close-icon: none;
+  titlebar-normal-icon: none;
+  color: $fg;
+}
+QDockWidget::title {
+  background: $surface_dim;
+  padding: 7px 10px;
+  border-bottom: 1px solid $border;
+}
+
+// ── Group boxes: neutral header, no accent colour ───────────────
+QGroupBox {
+  background: transparent;
+  border: 1px solid $border;
+  border-radius: $radius;
+  margin-top: 10px;
+  padding: 12px 10px 10px 10px;
+  font-weight: 600;
+}
+QGroupBox::title {
+  subcontrol-origin: margin;
+  subcontrol-position: top left;
+  left: 10px;
+  padding: 0 4px;
+  color: $text_muted;
+}
+
+// ── Tabs: quiet, accent underline on the active one ─────────────
+QTabWidget::pane { border: 1px solid $border; border-radius: $radius-sm; top: -1px; }
+QTabBar { qproperty-drawBase: 0; }
+QTabBar::tab {
+  padding: 7px 14px;
+  margin-right: 2px;
+  border: none;
+  border-top-left-radius: $radius-sm;
+  border-top-right-radius: $radius-sm;
+  color: $text_muted;
+  background: transparent;
+}
+QTabBar::tab:hover:!selected { color: $fg; background: mix($surface, $bg, 60%); }
+QTabBar::tab:selected {
+  color: $fg;
+  background: $surface;
+  border-bottom: 2px solid $accent;
+}
+
+// ── Buttons: default quiet, [primary] accent-filled ─────────────
+QPushButton {
+  padding: 6px 14px;
+  border-radius: $radius;
+  border: 1px solid $border;
+  background: $surface;
+  color: $fg;
+}
+QPushButton:hover { background: $elevated; border-color: $border_strong; }
+QPushButton:pressed { background: darken($surface, 3%); }
+QPushButton:disabled { color: $text_disabled; border-color: $surface; background: $bg; }
+
+QPushButton[primary="true"] {
+  background: $accent;
+  color: $on_accent;
+  border: 1px solid $accent;
+  font-weight: 600;
+}
+QPushButton[primary="true"]:hover { background: $accent_hover; border-color: $accent_hover; }
+QPushButton[primary="true"]:pressed { background: darken($accent, 8%); }
+QPushButton[primary="true"]:disabled { background: mix($accent, $bg, 30%); color: $text_disabled; border-color: transparent; }
+
+QPushButton[danger="true"] { border-color: mix($error, $border, 60%); color: $error; }
+QPushButton[danger="true"]:hover { background: mix($error, $surface, 18%); border-color: $error; }
+
+// ── Tool buttons (toolbars & flat icon buttons) ─────────────────
+QToolButton {
+  padding: 5px 8px;
+  border-radius: $radius-sm;
+  border: 1px solid transparent;
+  background: transparent;
+  color: $fg;
+}
+QToolButton:hover { background: $elevated; }
+QToolButton:pressed, QToolButton:checked { background: mix($accent, $surface, 24%); }
+QToolButton:checked { border-color: mix($accent, $border, 50%); }
+QToolButton::menu-indicator { image: none; }
+
+// ── Inputs: recessed wells, accent focus ring ───────────────────
+QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox { @include well; padding: 5px 8px; color: $fg; }
+QComboBox:hover, QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover { border-color: $border_strong; }
+QComboBox:focus, QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus { border-color: $accent; }
+QComboBox::drop-down { border: none; width: 20px; }
+QComboBox QAbstractItemView {
+  background: $elevated;
+  border: 1px solid $border;
+  border-radius: $radius-sm;
+  selection-background-color: mix($accent, $elevated, 30%);
+  selection-color: $fg;
+  outline: none;
+  padding: 2px;
+}
+
+// ── Progress ────────────────────────────────────────────────────
+QProgressBar {
+  border: none;
+  border-radius: $radius;
+  background: $surface_dim;
+  color: $fg;
+  text-align: center;
+  height: 18px;
+}
+QProgressBar::chunk {
+  border-radius: $radius;
+  background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 $accent, stop:1 $accent_hover);
+}
+
+// ── Lists / trees: subtle selection tint ────────────────────────
+QListWidget, QTreeView, QTableView {
+  background: $surface_dim;
+  border: 1px solid $border;
+  border-radius: $radius;
+  outline: none;
+  alternate-background-color: mix($surface, $surface_dim, 40%);
+}
+QListWidget::item { padding: 4px 6px; border-radius: $radius-sm; }
+QListWidget::item:hover { background: mix($surface, $surface_dim, 50%); }
+QListWidget::item:selected { background: mix($accent, $surface_dim, 26%); color: $fg; }
+
+// ── Scrollbars: slim, visible track well ────────────────────────
+// NOTE: qdarktheme's own handle rules carry large margins (4px/14px); without
+// an explicit margin reset here the handle collapses to zero width.
+QScrollBar:vertical { background: $surface_dim; width: 12px; margin: 0; border-radius: 6px; }
+QScrollBar:horizontal { background: $surface_dim; height: 12px; margin: 0; border-radius: 6px; }
+QScrollBar::handle:vertical {
+  background: $border_strong;
+  border-radius: 4px;
+  min-height: 24px;
+  margin: 2px 3px;
+}
+QScrollBar::handle:horizontal {
+  background: $border_strong;
+  border-radius: 4px;
+  min-width: 24px;
+  margin: 3px 2px;
+}
+QScrollBar::handle:hover { background: $text_muted; }
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+
+// ── Menus ───────────────────────────────────────────────────────
+QMenuBar { background: $surface_dim; border-bottom: 1px solid $border; padding: 2px; }
+QMenuBar::item { padding: 4px 10px; border-radius: $radius-sm; }
+QMenuBar::item:selected { background: $elevated; }
+QMenu { background: $elevated; border: 1px solid $border; border-radius: $radius; padding: 5px; }
+QMenu::item { padding: 6px 26px 6px 12px; border-radius: $radius-sm; }
+QMenu::item:selected { background: mix($accent, $elevated, 30%); color: $fg; }
+QMenu::separator { height: 1px; background: $border; margin: 5px 8px; }
+
+// ── Toolbar & status bar ────────────────────────────────────────
+QToolBar { background: $surface; border: none; border-bottom: 1px solid $border; spacing: 3px; padding: 4px 6px; }
+QToolBar::separator { background: $border; width: 1px; margin: 4px 6px; }
+QStatusBar { background: $surface_dim; border-top: 1px solid $border; color: $text_muted; }
+QStatusBar::item { border: none; }
+
+// ── Check boxes & radio ─────────────────────────────────────────
+QCheckBox { spacing: 6px; }
+QCheckBox::indicator, QRadioButton::indicator {
+  width: 16px; height: 16px;
+  border: 1px solid $border_strong;
+  background: $surface_dim;
+}
+QCheckBox::indicator { border-radius: $radius-sm; }
+QRadioButton::indicator { border-radius: 8px; }
+QCheckBox::indicator:hover, QRadioButton::indicator:hover { border-color: $accent; }
+QCheckBox::indicator:checked, QRadioButton::indicator:checked { background: $accent; border-color: $accent; }
+
+// ── Sliders (parameter panel) ───────────────────────────────────
+QSlider::groove:horizontal { height: 4px; background: $surface_dim; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: $accent; border-radius: 2px; }
+QSlider::handle:horizontal {
+  background: $fg; width: 14px; height: 14px;
+  margin: -6px 0; border-radius: 7px;
+}
+QSlider::handle:horizontal:hover { background: $accent_hover; }
+
+// ── Plain text (log) ────────────────────────────────────────────
+QPlainTextEdit {
+  @include well;
+  font-family: "JetBrains Mono", "Cascadia Code", monospace;
+  font-size: 12px;
+  selection-background-color: mix($accent, $surface_dim, 40%);
+}
+
+QLabel { background: transparent; }
+QSplitter::handle { background: $border; }
+QSplitter::handle:hover { background: $accent; }
+
+// ── App widgets: styled globally by type + dynamic property so a live theme
+//    switch re-themes already-built instances (no construction-baked colours) ──
+StatCard {
+  background: $elevated;
+  border: 1px solid $border;
+  border-radius: $radius;
+}
+StatCard > QLabel { border: none; background: transparent; }
+StatCard #statLabel { color: $text_muted; font-size: 9px; }
+StatCard #statValue { color: $accent; font-size: 14px; font-weight: 600; }
+
+TaskManager {
+  background: $surface_dim;
+  border: 1px solid $border;
+  border-radius: 8px;
+}
+TaskManager #tasksTitle {
+  color: $text_muted;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 0 4px 0;
+  min-height: 16px;
+}
+TaskItem #taskName { font-size: 11px; }
+TaskItem #taskTime { color: $text_muted; font-size: 10px; }
+TaskItem QPushButton { border: none; padding: 0; background: transparent; }
+
+// Collapsible parameter card: flat tonal surface, no accent stripe/header
+CollapsibleCard QFrame#cardFrame {
+  background: $surface;
+  border: 1px solid $border;
+  border-radius: $radius;
+}
+CollapsibleCard #cardTitle { color: $fg; font-size: 11px; font-weight: 600; border: none; }
+
+// Segmented control (preset toggle): active = accent fill, others recessed
+SegmentedControl QLabel {
+  border-radius: $radius-sm;
+  padding: 4px 10px;
+  font-size: 11px;
+  background: $surface_dim;
+  color: $text_muted;
+}
+SegmentedControl QLabel[active="true"] {
+  background: $accent;
+  color: $on_accent;
+  font-weight: 600;
+}
+
+// Update banner (accent surface — its own contained palette)
+UpdateBar { background: $accent; border-radius: $radius; }
+UpdateBar QLabel { color: $on_accent; font-weight: 600; }
+UpdateBar QPushButton {
+  background: $on_accent;
+  color: $accent;
+  border: none;
+  border-radius: $radius-sm;
+  padding: 4px 12px;
+  font-weight: 600;
+}
+UpdateBar QPushButton#dismissBtn {
+  background: transparent;
+  color: $on_accent;
+  font-size: 16px;
+}
+UpdateBar QProgressBar#updateProgress {
+  background: rgba(255, 255, 255, 0.25);
+  border: none;
+  border-radius: 3px;
+  height: 14px;
+}
+UpdateBar QProgressBar#updateProgress::chunk { background: $on_accent; border-radius: 3px; }
+
+// Map viewer overlays
+QLabel#statusStrip {
+  background: $surface_dim;
+  color: $text_muted;
+  padding: 2px 4px;
+  font-size: 11px;
+  font-family: "JetBrains Mono", monospace;
+  border-top: 1px solid $border;
+}
+QLabel#grainOverlay {
+  background: $elevated;
+  color: $fg;
+  padding: 8px 10px;
+  font-size: 12px;
+  border-radius: $radius;
+  border: 1px solid $border;
+}
+QLabel#mapPlaceholder {
+  font-size: 18px;
+  color: $text_disabled;
+  border: 2px dashed $border;
+  border-radius: 12px;
+  margin: 40px;
+}
+QLabel#computingOverlay {
+  background: rgba(0, 0, 0, 0.66);
+  color: $accent;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 12px 24px;
+  border-radius: 8px;
+}

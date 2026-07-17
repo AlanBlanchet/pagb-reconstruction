@@ -5,13 +5,16 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QLabel,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
 from pagb_reconstruction.core.orientation_relationship import OrientationRelationship
+from pagb_reconstruction.ui.theme import active_theme
 
 
 class ORPanel(QWidget):
@@ -22,7 +25,15 @@ class ORPanel(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        outer.addWidget(scroll)
+        inner = QWidget()
+        scroll.setWidget(inner)
+        layout = QVBoxLayout(inner)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
@@ -64,7 +75,7 @@ class ORPanel(QWidget):
         self._histogram_group = QGroupBox("Misorientation Distribution")
         hist_layout = QVBoxLayout(self._histogram_group)
         self._hist_plot = pg.PlotWidget()
-        self._hist_plot.setBackground("#1e1e2e")
+        self._hist_plot.setBackground(active_theme().surface_dim)
         self._hist_plot.setLabel("bottom", "Angle", units="\u00b0")
         self._hist_plot.setLabel("left", "Count")
         self._hist_plot.showGrid(x=True, y=True, alpha=0.2)
@@ -137,6 +148,7 @@ class ORPanel(QWidget):
         self._hist_plot.clear()
         self._peak_lines.clear()
 
+        p = active_theme()
         if self._ebsd_map_ref is not None:
             _, angles = self._ebsd_map_ref._pair_angles()
             hist, bin_edges = np.histogram(angles, bins=90, range=(0, 90))
@@ -145,9 +157,9 @@ class ORPanel(QWidget):
                 bin_centers,
                 hist,
                 stepMode=False,
-                pen=pg.mkPen("#cdd6f4", width=1.5),
+                pen=pg.mkPen(p.accent, width=1.5),
                 fillLevel=0,
-                fillBrush=(205, 214, 244, 40),
+                fillBrush=p.rgb("accent") + (50,),
             )
 
         name = self._or_combo.currentText()
@@ -159,7 +171,7 @@ class ORPanel(QWidget):
                 line = pg.InfiniteLine(
                     pos=angle,
                     angle=90,
-                    pen=pg.mkPen("#f38ba8", width=1.5, style=Qt.PenStyle.DashLine),
+                    pen=pg.mkPen(p.warning, width=1.5, style=Qt.PenStyle.DashLine),
                 )
                 self._hist_plot.addItem(line)
                 self._peak_lines.append(line)

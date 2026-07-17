@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from pagb_reconstruction.ui.theme import active_theme
+from pagb_reconstruction.ui.theme import active_theme, icon
 
 
 class TaskItem(QWidget):
@@ -31,7 +31,7 @@ class TaskItem(QWidget):
         layout.setContentsMargins(6, 2, 6, 2)
         layout.setSpacing(6)
 
-        self._icon = QLabel("\u25cf")
+        self._icon = QLabel()
         self._icon.setFixedWidth(14)
         layout.addWidget(self._icon)
 
@@ -39,7 +39,7 @@ class TaskItem(QWidget):
         mid.setContentsMargins(0, 0, 0, 0)
         mid.setSpacing(1)
         self._name_label = QLabel(name)
-        self._name_label.setStyleSheet("font-size: 11px;")
+        self._name_label.setObjectName("taskName")
         mid.addWidget(self._name_label)
 
         self._progress = QProgressBar()
@@ -51,16 +51,16 @@ class TaskItem(QWidget):
         layout.addLayout(mid, 1)
 
         self._time_label = QLabel("0s")
+        self._time_label.setObjectName("taskTime")
         self._time_label.setFixedWidth(40)
-        self._time_label.setStyleSheet("font-size: 10px;")
         self._time_label.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
         layout.addWidget(self._time_label)
 
-        self._cancel_btn = QPushButton("\u2715")
+        self._cancel_btn = QPushButton()
         self._cancel_btn.setFixedSize(18, 18)
-        self._cancel_btn.setStyleSheet("border: none; font-size: 11px; padding: 0;")
+        self._cancel_btn.setIcon(icon("close", color=active_theme().text_muted))
         self._cancel_btn.clicked.connect(
             lambda: self.cancel_requested.emit(self._task_id)
         )
@@ -70,14 +70,14 @@ class TaskItem(QWidget):
 
     def _apply_style(self):
         p = active_theme()
-        colors = {
-            "running": p.accent,
-            "done": p.success,
-            "error": p.error,
-            "cancelled": p.warning,
+        spec = {
+            "running": ("spinner", p.accent),
+            "done": ("check", p.success),
+            "error": ("cross", p.error),
+            "cancelled": ("close", p.warning),
         }
-        color = colors.get(self._status, p.accent)
-        self._icon.setStyleSheet(f"color: {color}; font-size: 12px;")
+        name, color = spec.get(self._status, ("spinner", p.accent))
+        self._icon.setPixmap(icon(name, color=color).pixmap(12, 12))
 
     def set_progress(self, pct: float):
         if pct < 0:
@@ -88,13 +88,6 @@ class TaskItem(QWidget):
 
     def set_status(self, status: Literal["running", "done", "error", "cancelled"]):
         self._status = status
-        icons = {
-            "running": "\u25cf",
-            "done": "\u2713",
-            "error": "\u2717",
-            "cancelled": "\u2014",
-        }
-        self._icon.setText(icons.get(status, "\u25cf"))
         self._apply_style()
         if status != "running":
             self._tick_timer.stop()
@@ -114,6 +107,8 @@ class TaskManager(QWidget):
         self._tasks: dict[str, TaskItem] = {}
         self._dismiss_timers: dict[str, QTimer] = {}
         self.setFixedWidth(300)
+        # A plain QWidget subclass paints no stylesheet background without this.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
 
         self._layout = QVBoxLayout(self)
@@ -121,27 +116,11 @@ class TaskManager(QWidget):
         self._layout.setSpacing(2)
 
         self._title = QLabel("Tasks")
-        self._title.setStyleSheet("font-size: 10px; font-weight: bold;")
+        self._title.setObjectName("tasksTitle")
         self._layout.addWidget(self._title)
         self._layout.addStretch()
 
         self._update_visibility()
-        self._update_style()
-
-    def _update_style(self):
-        p = active_theme()
-        r, g, b = (
-            int(p.surface_dim[1:3], 16),
-            int(p.surface_dim[3:5], 16),
-            int(p.surface_dim[5:7], 16),
-        )
-        self.setStyleSheet(
-            f"TaskManager {{ background: rgba({r}, {g}, {b}, 230); "
-            f"border-radius: 8px; border: 1px solid {p.border}; }}"
-        )
-        self._title.setStyleSheet(
-            f"font-size: 10px; font-weight: bold; color: {p.text_muted};"
-        )
 
     def submit(self, task_id: str, name: str) -> TaskItem:
         if task_id in self._tasks:

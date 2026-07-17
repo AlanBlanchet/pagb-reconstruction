@@ -1,3 +1,15 @@
+import gc
+import os
+
+# Qt UI tests must run headless (CI has no display). Set before any Qt import.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+# PySide6 + pyqtgraph crash natively (SIGSEGV) when CPython's cyclic GC runs
+# mid-construction of a pyqtgraph widget: its WidgetGroup holds weakrefs to
+# QWidgets already deleted on the C++ side. Disable cyclic GC for the (short,
+# throwaway) test process — refcounting still reclaims everything.
+gc.disable()
+
 import numpy as np
 import pytest
 from pathlib import Path

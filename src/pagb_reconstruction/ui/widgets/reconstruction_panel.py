@@ -19,7 +19,7 @@ from pagb_reconstruction.core.reconstruction import (
     ReconstructionEngine,
     ReconstructionResult,
 )
-from pagb_reconstruction.ui.theme import ACCENT
+from pagb_reconstruction.ui.theme import active_theme
 
 _STEP_NAMES = [
     "Detecting grains",
@@ -100,6 +100,7 @@ class ReconstructionPanel(QWidget):
 
         btn_layout = QHBoxLayout()
         self._run_btn = QPushButton("Run Reconstruction")
+        self._run_btn.setProperty("primary", True)
         self._run_btn.clicked.connect(self.run_requested.emit)
         btn_layout.addWidget(self._run_btn)
 
@@ -112,10 +113,6 @@ class ReconstructionPanel(QWidget):
         progress_layout = QHBoxLayout()
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 100)
-        self._progress_bar.setStyleSheet(
-            f"QProgressBar::chunk {{ background: qlineargradient("
-            f"x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT}, stop:1 #74c7ec); }}"
-        )
         progress_layout.addWidget(self._progress_bar, 1)
         self._step_counter = QLabel("")
         self._step_counter.setMinimumWidth(70)
@@ -145,6 +142,7 @@ class ReconstructionPanel(QWidget):
         self._run_btn.setEnabled(False)
         self._stop_btn.setEnabled(True)
         self._log.clear()
+        self._progress_bar.setStyleSheet("")
         self._results_group.setVisible(False)
         self._step_timings.clear()
         self._config = config
@@ -176,7 +174,8 @@ class ReconstructionPanel(QWidget):
             total_time = time.monotonic() - self._start_time
             self._progress_bar.setValue(100)
             self._progress_bar.setStyleSheet(
-                "QProgressBar::chunk { background: #a6e3a1; border-radius: 3px; }"
+                f"QProgressBar::chunk {{ background: {active_theme().success};"
+                " border-radius: 6px; }}"
             )
             self._step_label.setText("Done")
             self._step_counter.setText(f"{len(_STEP_NAMES)}/{len(_STEP_NAMES)}")
@@ -195,7 +194,8 @@ class ReconstructionPanel(QWidget):
                 * 100
             )
             ok = mean_fit <= tol
-            verdict_color = "#a6e3a1" if ok else "#f9e2af"
+            _p = active_theme()
+            verdict_color = _p.success if ok else _p.warning
             verdict = "good fit" if ok else "high fit \u2014 check OR"
 
             self._results_label.setText(
