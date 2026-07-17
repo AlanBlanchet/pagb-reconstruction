@@ -45,3 +45,9 @@ ASTM now log10 (8.9, physical); result auto-switches to Parent+Boundaries; color
 
 ## 2026-07-17 — Statistics-scroll FAIL was a critic coordinate error (RESOLVED)
 - The "Statistics dock has no scrollbar" FAIL (reported twice) was WRONG: with the default layout the bottom dock is ~796px wide (right dock takes the right ~380 at full height), so its vertical scrollbar sits at x≈790. The critic checked x≈818 — ~28px PAST the dock edge, in the gap — and missed it. A zoomed crop of the real rendered PNG at x 760-796 shows the recessed track + grey rounded handle plainly; drag scrolls the content. Offscreen vsb_max/vis were CORRECT; the earlier "don't trust the offscreen vsb line" note was itself the error. Lesson: derive a dock's true right-edge x from its measured width before sampling for a scrollbar — don't assume full window width.
+
+## 2026-07-17 — map pixelation fix (issue #8) PASS
+- SmoothPixmapTransform + autoDownsample (map_viewer.py) confirmed clean: no cross-hatch across 5 window sizes incl. non-integer ratios (1247x833 vs 501x667 source) + aggressive downscale (700x550), on IPF-Z/Phase/Band Contrast. VLM + pixel checkerboard test (adjacent-sign-alt 0.29-0.38; true aliasing would be ~0.8-1.0) both clean.
+- RESIDUAL UNVERIFIED: sandbox is 1:1 DPI — cannot reproduce fractional-OS-scaling (user's Windows 125/150%) compounding with app-window fractional scale. Flag if user reports recurrence.
+- Ergonomic: IPF-key triangle floats in ~40% dead black canvas at wide windows (worst issue); Equalize/Boundaries checkboxes + colormap selector unlabeled until hover; 10µm scale bar tiny.
+- Resize technique for this app: `xdotool search --name 'PAGB Reconstruction'` then `xdotool windowsize <wid> W H` on DISPLAY=:99.
