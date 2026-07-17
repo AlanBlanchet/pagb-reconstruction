@@ -51,3 +51,8 @@ ASTM now log10 (8.9, physical); result auto-switches to Parent+Boundaries; color
 - RESIDUAL UNVERIFIED: sandbox is 1:1 DPI — cannot reproduce fractional-OS-scaling (user's Windows 125/150%) compounding with app-window fractional scale. Flag if user reports recurrence.
 - Ergonomic: IPF-key triangle floats in ~40% dead black canvas at wide windows (worst issue); Equalize/Boundaries checkboxes + colormap selector unlabeled until hover; 10µm scale bar tiny.
 - Resize technique for this app: `xdotool search --name 'PAGB Reconstruction'` then `xdotool windowsize <wid> W H` on DISPLAY=:99.
+
+## 2026-07-17 — reconstruction param controls (Eloïse papers) PASS
+- min_parent_size_um "Min. parent grain size (µm)" slider (Post-processing) + Bainite preset (Default/Fine/Coarse/Bainite) both PASS: clicking Bainite visibly changes params (threshold 2.5→3.5, min parent size 0→5 etc.); slider ranges 0–50µm. Panel legible at 1600x1300, all cards expand cleanly.
+- Ergonomic: FOUR size controls scattered across 3 cards (min child grain / min cluster / merge islands / min parent size) — hard to tell which answers a size request. Fixed labels with units this turn; grouping them still open. Raw snake_case→Title labels read badly ("Um" not µm) — always set pydantic Field(title=...) for UI labels.
+- interact gotchas (reconfirmed): set final window size at launch_app time, NOT via post-launch xrandr/xdotool (later resize → cropped screenshot). Mouse-wheel over the side panel routes to the map canvas underneath (zooms map) — collapse cards instead of scrolling; interaction bug worth a ticket.
