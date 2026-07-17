@@ -3,7 +3,7 @@ import logging
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QPainter
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -73,12 +73,19 @@ class MapViewer(QWidget):
         self._hist_eq_cb.toggled.connect(self._on_hist_eq_toggled)
 
         self._graphics_view = pg.GraphicsLayoutWidget()
+        # Smooth pixmap transform stops the map from aliasing into a cross-hatch
+        # moiré on fractional-scaling displays (Windows 125/150 %), where the
+        # default nearest-neighbour draw at a non-integer scale drops rows/cols
+        # in a regular pattern. Reported as "très pixelisé".
+        self._graphics_view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        self._graphics_view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self._plot = self._graphics_view.addPlot()
         self._plot.setAspectLocked(True, ratio=1)
         self._plot.invertY(True)
         self._plot.getViewBox().setDefaultPadding(0)
         self._plot.hideButtons()
         self._image_item = pg.ImageItem()
+        self._image_item.setAutoDownsample(True)
         self._plot.addItem(self._image_item)
         self._plot.hideAxis("left")
         self._plot.hideAxis("bottom")
@@ -136,6 +143,7 @@ class MapViewer(QWidget):
         self._split_plot.setAspectLocked(True)
         self._split_plot.invertY(True)
         self._split_image_item = pg.ImageItem()
+        self._split_image_item.setAutoDownsample(True)
         self._split_plot.addItem(self._split_image_item)
         self._split_plot.hideAxis("left")
         self._split_plot.hideAxis("bottom")

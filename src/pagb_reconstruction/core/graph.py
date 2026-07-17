@@ -1,5 +1,6 @@
 import numpy as np
 from scipy import sparse
+from scipy.sparse.csgraph import connected_components
 
 from pagb_reconstruction.core.constants import ClusteringDefaults
 from pagb_reconstruction.core.grain import Grain
@@ -195,6 +196,26 @@ def build_variant_graph(
     return M, all_candidates
 
 
+def _grain_connected_components(
+    adj: sparse.csr_matrix, n_grains: int, n_variants: int
+) -> np.ndarray:
+    """Cluster grains by connected components of the variant graph, collapsed to
+    grain level (two grains share a parent if any of their variant nodes are
+    linked). The robust fallback when MCL forms no attractors: it preserves the
+    real, if coarse, parent structure instead of returning every grain isolated
+    (``np.arange``), which renders as reconstruction dust.
+    """
+    coo = adj.tocoo()
+    grain_r = coo.row // n_variants
+    grain_c = coo.col // n_variants
+    grain_adj = sparse.csr_matrix(
+        (np.ones(len(grain_r)), (grain_r, grain_c)),
+        shape=(n_grains, n_grains),
+    )
+    _, labels = connected_components(grain_adj, directed=False)
+    return labels.astype(np.int32)
+
+
 def variant_graph_cluster(
     adj: sparse.csr_matrix,
     all_candidates: np.ndarray,
@@ -224,41 +245,38 @@ def variant_graph_cluster(
         if diff.nnz == 0 or np.abs(diff.data).max() < _CLUSTERING.convergence_threshold:
             break
 
-    best_variants = np.zeros(n_grains, dtype=np.int32)
-    parent_oris = np.zeros((n_grains, 4))
-
-    M_csr = M.tocsr()
-    for i in range(n_grains):
-        scores = np.zeros(n_variants)
-        for v in range(n_variants):
-            row = i * n_variants + v
-            scores[v] = M_csr[row].sum()
-        best_variants[i] = int(np.argmax(scores))
-        parent_oris[i] = all_candidates[i, best_variants[i]]
+    # Best variant per grain = the variant node with the highest row mass.
+    # Vectorised (row sum → per-grain argmax); a Python double loop over
+    # n_grains × n_variants CSR rows was an O(dim) hotspot on large maps.
+    row_sums = np.asarray(M.sum(axis=1)).flatten().reshape(n_grains, n_variants)
+    best_variants = np.argmax(row_sums, axis=1).astype(np.int32)
+    parent_oris = all_candidates[np.arange(n_grains), best_variants]
 
     cluster_labels = np.zeros(n_grains, dtype=np.int32)
     diag = np.array(M.diagonal()).flatten()
     attractors = np.where(diag > _CLUSTERING.attractor_threshold)[0]
 
     if len(attractors) > 0:
-        grain_votes: dict[int, dict[int, float]] = {}
+        # Each node votes for its strongest attractor's cluster; a grain takes
+        # the cluster with the most total vote weight across its variant nodes.
+        # Vectorised via sparse argmax/max over the attractor rows — the prior
+        # per-column Python loop (dim iterations × dense attractor slice) was
+        # the O(dim²) step that hung reconstruction on full-resolution maps.
         M_csc = M.tocsc()
-        for i in range(dim):
-            grain_idx = i // n_variants
-            col = M_csc.getcol(i)
-            vals = np.array(col[attractors].todense()).flatten()
-            best_idx = np.argmax(vals)
-            best = attractors[best_idx]
-            cluster_id = best // n_variants
-            weight = vals[best_idx]
-            if grain_idx not in grain_votes:
-                grain_votes[grain_idx] = {}
-            votes = grain_votes[grain_idx]
-            votes[cluster_id] = votes.get(cluster_id, 0.0) + weight
-        for grain_idx, votes in grain_votes.items():
-            cluster_labels[grain_idx] = max(votes, key=votes.__getitem__)
+        sub = M_csc[attractors, :]
+        best_att = np.asarray(sub.argmax(axis=0)).flatten()
+        best_w = np.asarray(sub.max(axis=0).todense()).flatten()
+        node_cluster = attractors[best_att] // n_variants
+        node_grain = np.arange(dim) // n_variants
+        uniq_clusters, cluster_compact = np.unique(node_cluster, return_inverse=True)
+        vote = np.zeros((n_grains, uniq_clusters.size))
+        np.add.at(vote, (node_grain, cluster_compact), best_w)
+        cluster_labels = uniq_clusters[np.argmax(vote, axis=1)].astype(np.int32)
     else:
-        cluster_labels = np.arange(n_grains, dtype=np.int32)
+        # MCL found no attractors (too sparse a graph). Falling back to one
+        # cluster per grain (np.arange) renders as dust; instead keep the real
+        # parent structure via connected components of the variant graph.
+        cluster_labels = _grain_connected_components(adj, n_grains, n_variants)
 
     cluster_labels = remap_labels(cluster_labels)
 
