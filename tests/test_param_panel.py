@@ -16,6 +16,19 @@ def test_min_parent_size_control_is_exposed(qtbot):
     assert "min_parent_size_um" in panel._field_widgets, "control must render"
 
 
+def test_fill_nonindexed_toggle_is_exposed(qtbot):
+    from pagb_reconstruction.ui.widgets.param_panel import (
+        ParamPanel,
+        ToggleSwitch,
+        _FIELD_GROUPS,
+    )
+
+    assert "fill_nonindexed" in _FIELD_GROUPS["Grain Detection"]
+    panel = ParamPanel()
+    qtbot.addWidget(panel)
+    assert isinstance(panel._field_widgets["fill_nonindexed"], ToggleSwitch)
+
+
 def test_size_controls_have_clear_unit_labels():
     """The four size controls must carry disambiguating unit labels, not raw
     snake_case (a metallurgist should not see the stray word 'Um')."""

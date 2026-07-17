@@ -48,6 +48,13 @@ class ReconstructionConfig(Displayable):
         default=1.6,
         description="MCL inflation exponent controlling cluster granularity (higher = more clusters)",
     )
+    fill_nonindexed: bool = Field(
+        default=False,
+        title="Fill non-indexed pixels",
+        description="Fill non-indexed pixels from their nearest indexed neighbour "
+        "BEFORE reconstruction — stops lath/sheaf-boundary noise from splitting "
+        "prior-austenite grains into islands (Taylor et al. 2024).",
+    )
     grain_threshold_deg: float = Field(
         default=5.0,
         description="Misorientation threshold (°) for child grain boundary detection",
@@ -256,9 +263,13 @@ class ReconstructionEngine:
 
     def _detect_grains(self) -> list[Grain]:
         sym_quats = self._map._primary_symmetry_quats()
+        if self._config.fill_nonindexed:
+            quaternions, phase_ids = self._map.filled_pixel_data()
+        else:
+            quaternions, phase_ids = self._map.quaternions, self._map.phase_ids
         return detect_grains(
-            quaternions=self._map.quaternions,
-            phase_ids=self._map.phase_ids,
+            quaternions=quaternions,
+            phase_ids=phase_ids,
             topology=self._map.topology,
             symmetry_quats=sym_quats,
             threshold_deg=self._config.grain_threshold_deg,

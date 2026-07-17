@@ -58,7 +58,7 @@ _PRESETS = {
 }
 
 _FIELD_GROUPS = {
-    "Grain Detection": ["grain_threshold_deg", "min_grain_size"],
+    "Grain Detection": ["fill_nonindexed", "grain_threshold_deg", "min_grain_size"],
     "Clustering": [
         "algorithm",
         "or_type",

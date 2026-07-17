@@ -148,6 +148,29 @@ class EBSDMap(SpatialMap):
         idx = distance_transform_edt(~mask, return_distances=False, return_indices=True)
         return grid[tuple(idx)]
 
+    def filled_pixel_data(self) -> tuple[np.ndarray, np.ndarray]:
+        """Quaternions + phase ids with every non-indexed pixel replaced by its
+        nearest indexed neighbour, in pixel order — for cleaning BEFORE
+        reconstruction. Taylor et al. 2024: non-indexed pixels at lath/sheaf
+        boundaries otherwise split prior-austenite grains into islands, and
+        filling before beats cleaning after. No-op (returns the raw data) for a
+        sparse map, or an all-/none-indexed map, where nearest-neighbour fill in
+        pixel-grid order is undefined."""
+        q = self.quaternions
+        ph = self.phase_ids
+        mask = self.indexed_grid_mask
+        if self.is_sparse or mask.all() or not mask.any():
+            return q, ph
+        from scipy.ndimage import distance_transform_edt
+
+        idx = distance_transform_edt(
+            ~mask, return_distances=False, return_indices=True
+        )
+        rows, cols = self.shape
+        q_filled = q.reshape(rows, cols, 4)[tuple(idx)].reshape(-1, 4)
+        ph_filled = ph.reshape(rows, cols)[tuple(idx)].reshape(-1)
+        return q_filled, ph_filled
+
     def _to_grid(self, data: np.ndarray, fill: float = 0.0) -> np.ndarray:
         if not self.is_sparse:
             if data.ndim == 1:
