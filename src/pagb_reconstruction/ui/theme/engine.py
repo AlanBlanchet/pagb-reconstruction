@@ -5,7 +5,7 @@ injected from it here, so a colour only ever lives in :mod:`palette`.
 """
 
 import logging
-from pathlib import Path
+from importlib.resources import files
 
 import pyqtgraph as pg
 import qdarktheme
@@ -19,7 +19,6 @@ from pagb_reconstruction.ui.theme.palette import THEMES, ThemePalette
 
 logger = logging.getLogger(__name__)
 
-_SCSS_PATH = Path(__file__).with_name("app.scss")
 _DEFAULT = "Carbon"
 
 _active: ThemePalette = THEMES[_DEFAULT]
@@ -34,8 +33,21 @@ def _scss_vars(p: ThemePalette) -> str:
 
 def _compile(p: ThemePalette) -> str:
     if p.name not in _qss_cache:
-        scss = _scss_vars(p) + _SCSS_PATH.read_text(encoding="utf-8")
-        _qss_cache[p.name] = qtsass.compile(scss)
+        try:
+            # importlib.resources resolves inside a PyInstaller bundle;
+            # Path(__file__) does not (data is unpacked elsewhere) and crashed
+            # the frozen app.
+            template = (
+                files("pagb_reconstruction.ui.theme")
+                .joinpath("app.scss")
+                .read_text(encoding="utf-8")
+            )
+            _qss_cache[p.name] = qtsass.compile(_scss_vars(p) + template)
+        except Exception:
+            # A stylesheet problem must never take the app down — fall back to
+            # the base theme (empty custom QSS) instead of crashing on launch.
+            logger.error("stylesheet compile failed; using base theme", exc_info=True)
+            _qss_cache[p.name] = ""
     return _qss_cache[p.name]
 
 

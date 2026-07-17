@@ -11,10 +11,14 @@ hidden = [
     "PySide6", "qdarktheme", "superqt",
 ]
 
-# orix uses lazy_loader with .pyi stubs — need collect_all to get data files
-for pkg in ["orix", "diffpy"]:
+# orix (lazy_loader .pyi stubs), qtawesome (icon fonts) and qtsass (_sass
+# C ext) all ship runtime data/binaries PyInstaller misses without collect_all.
+for pkg in ["orix", "diffpy", "qtawesome", "qtsass"]:
     d, b, h = collect_all(pkg)
     datas += d; binaries += b; hidden += h
+
+# The SCSS stylesheet is read at runtime via importlib.resources.
+datas += [("src/pagb_reconstruction/ui/theme/app.scss", "pagb_reconstruction/ui/theme")]
 
 for pkg in ["numba", "scipy", "sklearn", "h5py", "pydantic", "matplotlib", "pyqtgraph"]:
     hidden += collect_submodules(pkg)
