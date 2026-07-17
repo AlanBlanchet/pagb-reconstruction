@@ -63,12 +63,14 @@ Done:
 - Compare approaches side by side, scored on shared fit metrics (Taylor 2024) —
   the Compare… dialog: presets + one-field sweep, ranked best-fit-first, apply
   the winner's parameters.
-- Variant merging 24→12 for large-map performance (Hielscher 2022 §5.4) —
-  `merge_variants_deg` (12° pairs the KS 10.53° block variants; matching per
-  Bain-group cycle, variant precision restored after clustering).
-
 Not yet implemented:
 
+- Variant merging 24→12 for large-map performance (Hielscher 2022 §5.4). The KS
+  block pairing is computed (`OrientationRelationship.variant_merge_groups`, the
+  10.53° pairs), but the correct integration combines the pair's EDGE WEIGHTS in
+  the variant graph and restores precision by voting between the pair — NOT
+  clustering on one representative, which over-merges on large maps. The
+  edge-combining step is the remaining work.
 - Retained-austenite seeded growth for partially transformed maps (Niessen 2022).
 - Σ3 annealing-twin detection/merging toggle (Sun 2023; Hielscher 2022).
 - Pole-figure back-calculated-variant overlay + per-OR mean angular deviation

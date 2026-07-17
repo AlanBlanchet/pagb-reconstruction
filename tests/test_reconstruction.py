@@ -131,30 +131,3 @@ def test_size_filters_disabled_are_noops(synthetic_multi_parent):
     eng._revert_small_clusters()
     eng._remove_small_parents()
     assert eng._parent_labels[0] == 0, "disabled filters must not remove anything"
-
-
-def test_variant_merging_still_recovers_parents(synthetic_multi_parent):
-    """Hielscher 2022 §5.4: merging block-paired variants (24→12) speeds up
-    clustering 4× but must not change WHICH parents are recovered — variant
-    precision is restored by the final full-set best-fit step."""
-    emap, region, parents = synthetic_multi_parent
-    from orix.quaternion import Orientation
-
-    sym = OrientationRelationship.kurdjumov_sachs().parent_phase.symmetry
-    config = ReconstructionConfig(
-        algorithm="variant_graph",
-        optimize_or=False,
-        min_grain_size=2,
-        merge_variants_deg=12.0,
-    )
-    result = ReconstructionEngine(emap, config).run()
-    n_parents = len(np.unique(result.parent_grain_ids[result.parent_grain_ids >= 0]))
-    assert n_parents == 3, f"expected 3 parents with variant merging, got {n_parents}"
-    recovered = Orientation(result.parent_orientations, symmetry=sym)
-    for r in range(3):
-        mask = region == r
-        ref = Orientation(np.tile(parents[r], (mask.sum(), 1)), symmetry=sym)
-        dev = np.rad2deg(recovered[mask].angle_with(ref, degrees=False))
-        assert np.median(dev) < 3.0, f"region {r} off by {np.median(dev):.1f} deg"
-    # variant ids keep FULL-set precision (0..23), not merged-group indices
-    assert result.variant_ids.max() >= 12 or len(np.unique(result.variant_ids)) > 12

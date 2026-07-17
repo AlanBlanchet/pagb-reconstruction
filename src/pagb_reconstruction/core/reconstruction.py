@@ -48,16 +48,6 @@ class ReconstructionConfig(Displayable):
         default=1.6,
         description="MCL inflation exponent controlling cluster granularity (higher = more clusters)",
     )
-    merge_variants_deg: float = Field(
-        default=0.0,
-        ge=0.0,
-        le=20.0,
-        title="Merge variants ≤ (°)",
-        description="Pair up variants closer than this before clustering — 12° "
-        "pairs the KS 10.53° block variants (24→12), cutting clustering time and "
-        "memory ~4× on large maps; variant detail is restored afterwards "
-        "(Hielscher et al. 2022 §5.4). 0 = off.",
-    )
     grain_threshold_deg: float = Field(
         default=5.0,
         description="Misorientation threshold (°) for child grain boundary detection",
@@ -170,13 +160,6 @@ class ReconstructionEngine:
     def _run_variant_graph(self, _progress) -> ReconstructionResult:
         _progress("Building variant graph", 0.3)
         sym_quats = self._map._primary_symmetry_quats()
-        # Optional variant merging (Hielscher 2022 §5.4): cluster on one
-        # representative per block pair; the final _compute_variants step
-        # restores full variant precision against the complete set.
-        subset = None
-        groups = self._or.variant_merge_groups(self._config.merge_variants_deg)
-        if any(len(g) > 1 for g in groups):
-            subset = np.array([g[0] for g in groups], dtype=np.int64)
         adj, all_candidates = build_variant_graph(
             self._grains,
             self._or,
@@ -184,11 +167,10 @@ class ReconstructionEngine:
             threshold_deg=self._config.threshold_deg,
             tolerance_deg=self._config.tolerance_deg,
             progress_callback=_progress,
-            variant_subset=subset,
         )
 
         _progress("Clustering variants", 0.5)
-        n_variants = len(subset) if subset is not None else self._or.n_variants
+        n_variants = self._or.n_variants
         parent_oris, best_variants, self._parent_labels = variant_graph_cluster(
             adj,
             all_candidates,

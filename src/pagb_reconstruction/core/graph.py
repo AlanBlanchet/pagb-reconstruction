@@ -150,22 +150,14 @@ def build_variant_graph(
     threshold_deg: float = 2.5,
     tolerance_deg: float = 2.5,
     progress_callback=None,
-    variant_subset: np.ndarray | None = None,
 ) -> tuple[sparse.csr_matrix, np.ndarray]:
-    """``variant_subset`` restricts the graph to representative variants (one
-    per merged block pair, Hielscher 2022 §5.4) — dim halves, edges drop ~4×."""
     n_grains = len(grains)
-    n_variants = (
-        len(variant_subset) if variant_subset is not None else or_obj.n_variants
-    )
+    n_variants = or_obj.n_variants
     dim = n_grains * n_variants
 
     all_candidates = np.zeros((n_grains, n_variants, 4))
     for i, grain in enumerate(grains):
-        cands = or_obj.candidate_parents(grain.mean_quaternion)
-        all_candidates[i] = (
-            cands[variant_subset] if variant_subset is not None else cands
-        )
+        all_candidates[i] = or_obj.candidate_parents(grain.mean_quaternion)
 
     id_map = grain_index_map(grains)
     edges = []

@@ -66,7 +66,6 @@ _FIELD_GROUPS = {
         "threshold_deg",
         "tolerance_deg",
         "inflation_power",
-        "merge_variants_deg",
         "min_cluster_size",
     ],
     "Post-processing": [
