@@ -3,8 +3,9 @@
 ## 2026-06-18
 
 ### Launch / capture
-- interact sandbox is BROKEN on this host: nested Xephyr goes `[defunct]` seconds after `launch_app`, the app dies before its window maps, and `reset_sandbox` does NOT fix it (filed interact issue #33).
-- WORKAROUND that works: spawn a self-managed, kept-alive Xephyr — `DISPLAY=:0 Xephyr :77 -screen 1400x900 -ac -br -noreset` as a background task so it survives — then launch `setsid bash -lc 'cd <repo> && DISPLAY=:77 LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe QT_QPA_PLATFORM=xcb exec uv run pagb data/sdss_ferrite_austenite.ang --run'`, capture with `DISPLAY=:77 xwd -root -silent | convert xwd:- out.png`, drive with `xdotool` on :77. `launch_app` cannot `cd` — wrap in `bash -lc`.
+- ~~interact sandbox is BROKEN on this host~~ **STALE — FIXED 2026-06-18 in interact v0.3.5** (issue #33 closed: display-number collision between concurrent servers; verified working live 2026-07-17 with THIS app — `launch_app` + reconstruction + capture all inside the sandbox). **Use interact `launch_app` normally; the manual Xephyr :77 workaround below is OBSOLETE — do not use it.**
+- <details><summary>Obsolete manual :77 workaround (kept for archaeology only)</summary> spawn a self-managed, kept-alive Xephyr — `DISPLAY=:0 Xephyr :77 -screen 1400x900 -ac -br -noreset` as a background task so it survives — then launch `setsid bash -lc 'cd <repo> && DISPLAY=:77 LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe QT_QPA_PLATFORM=xcb exec uv run pagb data/sdss_ferrite_austenite.ang --run'`, capture with `DISPLAY=:77 xwd -root -silent | convert xwd:- out.png`, drive with `xdotool` on :77.</details>
+- Launch (2026-07-17, interact >0.26): `launch_app(command="uv run pagb data/sdss_ferrite_austenite.ang --run", cwd="<repo>", wait=90)` — `cwd=` is new; shell phrasing `cd <repo> && uv run pagb …` also works now. Numba warm makes the window map late (~30-50s cold): interact no longer advertises the 1x1 `Qt Selection Owner` utility windows, it waits for the real `PAGB Reconstruction` window (raise `wait`, or retry `list_desktop_windows`). Drive/capture with `target="nested:PAGB Reconstruction"`, popups with `target="nested"`.
 - Multiple `PAGB Reconstruction` windows collide by title — verify the live PID before trusting any window grab; kill stale PIDs first.
 
 ### App behaviour / data truth
