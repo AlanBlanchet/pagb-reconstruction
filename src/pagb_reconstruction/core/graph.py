@@ -155,9 +155,10 @@ def build_variant_graph(
     n_variants = or_obj.n_variants
     dim = n_grains * n_variants
 
-    all_candidates = np.zeros((n_grains, n_variants, 4))
-    for i, grain in enumerate(grains):
-        all_candidates[i] = or_obj.candidate_parents(grain.mean_quaternion)
+    # Batched candidate parents for all grains at once — replaces a per-grain
+    # orix Orientation loop that dominated this stage.
+    child_quats = np.array([g.mean_quaternion for g in grains])
+    all_candidates = or_obj.candidate_parents_batch(child_quats)
 
     id_map = grain_index_map(grains)
     edges = []

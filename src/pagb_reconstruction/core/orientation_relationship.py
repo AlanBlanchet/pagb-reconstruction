@@ -140,6 +140,24 @@ class OrientationRelationship(Displayable):
 
         return np.array(candidates)
 
+    def candidate_parents_batch(self, child_quaternions: np.ndarray) -> np.ndarray:
+        """Vectorised :meth:`candidate_parents` over many children at once:
+        ``(n, 4)`` child quaternions → ``(n, K, 4)`` candidate parents. Replaces
+        the per-grain orix loop that dominated ``build_variant_graph`` — output
+        identical to calling :meth:`candidate_parents` per child."""
+        from pagb_reconstruction.utils.math_ops import (
+            quaternion_conjugate_nd,
+            quaternion_multiply_nd,
+        )
+
+        variants = self.variant_quaternions()  # (K, 4)
+        child = np.asarray(child_quaternions, dtype=np.float64)
+        cand = quaternion_multiply_nd(
+            quaternion_conjugate_nd(variants)[None, :, :], child[:, None, :]
+        )
+        sign = np.where(cand[..., 0:1] < 0, -1.0, 1.0)
+        return cand * sign
+
     def variant_merge_groups(self, merge_deg: float) -> list[list[int]]:
         """Pair up variants with a small mutual misorientation (Hielscher et
         al. 2022 §5.4: KS block pairs V1–V4 at 10.53° merge 24→12, cutting

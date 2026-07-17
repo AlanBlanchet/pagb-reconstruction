@@ -19,7 +19,11 @@ from pagb_reconstruction.utils.array_ops import (
     grain_index_map,
     remap_labels,
 )
-from pagb_reconstruction.utils.math_ops import MisorientationOps, QuaternionOps
+from pagb_reconstruction.utils.math_ops import (
+    MisorientationOps,
+    QuaternionOps,
+    pairwise_disorientation_below,
+)
 
 
 class ReconstructionConfig(Displayable):
@@ -409,28 +413,30 @@ class ReconstructionEngine:
 
         sym_quats = self._map._primary_symmetry_quats()
         unique_labels = np.unique(self._parent_labels)
-        n = len(unique_labels)
 
-        merge_map = {l: l for l in unique_labels}
+        merge_map = {int(l): int(l) for l in unique_labels}
 
         def _find_root(label):
+            label = int(label)
             while merge_map[label] != label:
                 merge_map[label] = merge_map[merge_map[label]]
                 label = merge_map[label]
             return label
 
-        for i in range(n):
-            for j in range(i + 1, n):
-                li, lj = unique_labels[i], unique_labels[j]
-                if li >= len(self._parent_quats) or lj >= len(self._parent_quats):
-                    continue
-                angle = MisorientationOps.pair(
-                    self._parent_quats[li], self._parent_quats[lj], sym_quats
-                )
-                if angle < self._config.merge_similar_deg:
-                    ri, rj = _find_root(li), _find_root(lj)
-                    if ri != rj:
-                        merge_map[rj] = ri
+        # Merge parent grains within merge_similar_deg. The O(V²) pairwise
+        # disorientation runs in one numba-parallel call; only the small
+        # union-find over below-threshold pairs stays in Python. (Connected
+        # components are union-order-independent, so the result is unchanged.)
+        valid = unique_labels[unique_labels < len(self._parent_quats)]
+        if len(valid) >= 2:
+            below = pairwise_disorientation_below(
+                self._parent_quats[valid], sym_quats, self._config.merge_similar_deg
+            )
+            ii, jj = np.where(below)
+            for a, b in zip(ii, jj):
+                ri, rj = _find_root(valid[a]), _find_root(valid[b])
+                if ri != rj:
+                    merge_map[rj] = ri
 
         for i in range(len(self._parent_labels)):
             self._parent_labels[i] = _find_root(self._parent_labels[i])
@@ -439,22 +445,24 @@ class ReconstructionEngine:
         if self._config.merge_inclusions_max_size <= 0:
             return
         grain_id_to_idx = grain_index_map(self._grains)
-        unique_labels = np.unique(self._parent_labels)
-        for label in unique_labels:
-            indices = np.where(self._parent_labels == label)[0]
-            total_size = sum(
-                self._grains[i].area for i in indices if i < len(self._grains)
-            )
-            if total_size < self._config.merge_inclusions_max_size:
+        labels = self._parent_labels
+        n_grains = len(self._grains)
+        # Pull grain fields into plain arrays/lists once — repeated pydantic
+        # attribute access per grain per label dominated this pass.
+        areas = np.array([g.area for g in self._grains], dtype=np.int64)
+        neighbor_ids = [g.neighbor_ids for g in self._grains]
+        for label in np.unique(labels):
+            indices = np.where(labels == label)[0]
+            in_grains = indices[indices < n_grains]
+            if areas[in_grains].sum() < self._config.merge_inclusions_max_size:
                 neighbor_labels = set()
-                for i in indices:
-                    if i < len(self._grains):
-                        for nid in self._grains[i].neighbor_ids:
-                            j = grain_id_to_idx.get(nid)
-                            if j is not None and self._parent_labels[j] != label:
-                                neighbor_labels.add(self._parent_labels[j])
+                for i in in_grains:
+                    for nid in neighbor_ids[i]:
+                        j = grain_id_to_idx.get(nid)
+                        if j is not None and labels[j] != label:
+                            neighbor_labels.add(labels[j])
                 if neighbor_labels:
-                    self._parent_labels[indices] = next(iter(neighbor_labels))
+                    labels[indices] = next(iter(neighbor_labels))
 
     def _prune_noise(self):
         """Drop noise: revert under-sized clusters, then remove sub-µm parent

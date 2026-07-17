@@ -47,3 +47,20 @@ def test_disorientation_nd_matches_misorientation_pair():
     for i in range(6):
         ref = MisorientationOps.pair(a[i], b[i], sym)
         assert abs(got[i] - ref) < 1e-6, f"{got[i]} vs {ref}"
+
+
+def test_pairwise_disor_below_matches_reference():
+    from orix.quaternion.symmetry import Oh
+    from pagb_reconstruction.utils.math_ops import (
+        MisorientationOps, pairwise_disorientation_below,
+    )
+    sym = np.ascontiguousarray(Oh.data, dtype=np.float64)
+    q = _rand_quats(20, 7)
+    thr = 40.0
+    got = pairwise_disorientation_below(np.ascontiguousarray(q), sym, thr)
+    assert got.shape == (20, 20)
+    for i in range(20):
+        for j in range(i + 1, 20):
+            ref = MisorientationOps.pair(q[i], q[j], sym) < thr
+            assert bool(got[i, j]) == ref
+        assert not got[i, i]  # diagonal + lower stay False

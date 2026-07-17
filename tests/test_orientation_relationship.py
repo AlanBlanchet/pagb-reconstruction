@@ -117,3 +117,17 @@ def test_merge_groups_disabled_is_identity():
     groups = orr.variant_merge_groups(0.0)
     assert len(groups) == orr.n_variants
     assert all(len(g) == 1 for g in groups)
+
+
+def test_candidate_parents_batch_matches_per_grain():
+    """The batched candidate-parent builder must match the per-grain
+    candidate_parents exactly — it replaces the orix loop in build_variant_graph."""
+    orr = OrientationRelationship.from_preset("KS")
+    rng = np.random.default_rng(0)
+    child = rng.standard_normal((7, 4))
+    child /= np.linalg.norm(child, axis=1, keepdims=True)
+    batch = orr.candidate_parents_batch(child)
+    assert batch.shape == (7, orr.n_variants, 4)
+    for i in range(7):
+        ref = orr.candidate_parents(child[i])
+        assert np.allclose(batch[i], ref, atol=1e-10), f"grain {i} mismatch"

@@ -80,6 +80,19 @@ def _misori_angle_simple(
     return min_angle
 
 
+@njit(cache=True, parallel=True)
+def _pairwise_disor_below(
+    quats: np.ndarray, sym_quats: np.ndarray, threshold: float
+) -> np.ndarray:
+    n = quats.shape[0]
+    out = np.zeros((n, n), dtype=np.bool_)
+    for i in prange(n):
+        for j in range(i + 1, n):
+            if _misori_angle_simple(quats[i], quats[j], sym_quats) < threshold:
+                out[i, j] = True
+    return out
+
+
 @njit(cache=True)
 def cumulative_gaussian(x: float, threshold: float, tolerance: float) -> float:
     if tolerance <= 0:
@@ -319,6 +332,19 @@ class QuaternionOps:
     disorientation_deg_nd = staticmethod(disorientation_deg_nd)
     from_rotation_matrix = staticmethod(_rotation_matrix_to_quat)
     symmetric_mean = staticmethod(_symmetric_mean)
+
+
+def pairwise_disorientation_below(
+    quats: np.ndarray, sym_quats: np.ndarray, threshold_deg: float
+) -> np.ndarray:
+    """Upper-triangular boolean matrix: entry (i, j) True iff the symmetry-reduced
+    disorientation between ``quats[i]`` and ``quats[j]`` is below ``threshold_deg``
+    (numba-parallel, no per-pair Python dispatch or O(n²) intermediate)."""
+    return _pairwise_disor_below(
+        np.ascontiguousarray(quats, dtype=np.float64),
+        np.ascontiguousarray(sym_quats, dtype=np.float64),
+        float(threshold_deg),
+    )
 
 
 class MisorientationOps:
