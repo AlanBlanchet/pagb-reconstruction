@@ -31,6 +31,23 @@ def test_size_controls_have_clear_unit_labels():
         assert ReconstructionConfig.model_fields[field].title == expected
 
 
+def test_set_config_syncs_preset_selection(qtbot):
+    """Applying a config (e.g. a Compare winner) must sync the preset tabs:
+    a matching preset gets highlighted, a custom config deselects all — else
+    the highlighted tab lies and clicking it silently resets the values."""
+    from pagb_reconstruction.ui.widgets.param_panel import _PRESETS, ParamPanel
+
+    panel = ParamPanel()
+    qtbot.addWidget(panel)
+    panel.set_config(_PRESETS["Fine"])
+    assert panel._preset_control.current_text() == "Fine"
+    custom = _PRESETS["Fine"].model_copy(update={"threshold_deg": 3.33})
+    panel.set_config(custom)
+    assert panel._preset_control.current_text() is None, (
+        "custom config must deselect every preset tab"
+    )
+
+
 def test_bainite_preset_exists_and_is_looser(qtbot):
     from pagb_reconstruction.ui.widgets.param_panel import _PRESETS
 

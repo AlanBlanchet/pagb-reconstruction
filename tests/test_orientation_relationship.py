@@ -97,3 +97,23 @@ def test_candidate_parents_invert_predicted_child():
             for c in candidates
         )
         assert dev < 1.0, f"true parent not recovered (best {dev:.1f} deg off)"
+
+
+def test_ks_variant_merge_groups_pair_up():
+    """Hielscher et al. 2022 §5.4: KS variants merge 24→12 by pairing variants
+    whose candidate-parent orientations are within δ=8.5° (the V1–V4 block
+    pairing) — a 4× edge reduction for the variant graph."""
+    orr = OrientationRelationship.from_preset("KS")
+    groups = orr.variant_merge_groups(12.0)
+    assert len(groups) == 12, f"KS must merge into 12 groups, got {len(groups)}"
+    assert all(len(g) == 2 for g in groups), "each KS group must be a variant pair"
+    # every variant appears exactly once
+    flat = sorted(i for g in groups for i in g)
+    assert flat == list(range(orr.n_variants))
+
+
+def test_merge_groups_disabled_is_identity():
+    orr = OrientationRelationship.from_preset("KS")
+    groups = orr.variant_merge_groups(0.0)
+    assert len(groups) == orr.n_variants
+    assert all(len(g) == 1 for g in groups)

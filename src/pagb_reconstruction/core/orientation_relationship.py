@@ -140,6 +140,76 @@ class OrientationRelationship(Displayable):
 
         return np.array(candidates)
 
+    def variant_merge_groups(self, merge_deg: float) -> list[list[int]]:
+        """Pair up variants with a small mutual misorientation (Hielscher et
+        al. 2022 §5.4: KS block pairs V1–V4 at 10.53° merge 24→12, cutting
+        variant-graph edges and memory 4×). ``merge_deg`` sits between the
+        lowest inter-variant angle and the next spectrum line (12° pairs the
+        10.53° KS blocks; next line is 14.88°). This is a MATCHING, not a
+        transitive union — each KS Bain group is an 8-cycle of 10.53° edges,
+        so union-find would collapse whole Bain groups instead of pairs.
+        ``merge_deg <= 0`` disables merging (one group per variant)."""
+        variants = np.ascontiguousarray(self.variant_quaternions(), dtype=np.float64)
+        n = len(variants)
+        if merge_deg <= 0:
+            return [[i] for i in range(n)]
+
+        from pagb_reconstruction.utils.math_ops import MisorientationOps
+
+        csym = np.ascontiguousarray(self.child_phase.symmetry.data, dtype=np.float64)
+        angle = np.zeros((n, n))
+        for i in range(n):
+            for j in range(i + 1, n):
+                angle[i, j] = angle[j, i] = MisorientationOps._angle_with_symmetry(
+                    variants[i], variants[j], csym
+                )
+        adj = {
+            i: sorted(j for j in range(n) if j != i and angle[i, j] < merge_deg)
+            for i in range(n)
+        }
+
+        matched = [False] * n
+        groups: list[list[int]] = []
+        seen: set[int] = set()
+        for start in range(n):
+            if start in seen:
+                continue
+            # component walk
+            comp, stack = [], [start]
+            while stack:
+                x = stack.pop()
+                if x in seen:
+                    continue
+                seen.add(x)
+                comp.append(x)
+                stack += adj[x]
+            comp.sort()
+            degrees = {i: len(adj[i]) for i in comp}
+            if len(comp) % 2 == 0 and all(d == 2 for d in degrees.values()):
+                # even cycle (the KS Bain-group shape) → alternate-edge pairing
+                order, cur, prev = [comp[0]], comp[0], -1
+                while len(order) < len(comp):
+                    nxt = next(j for j in adj[cur] if j != prev)
+                    order.append(nxt)
+                    prev, cur = cur, nxt
+                for k in range(0, len(order), 2):
+                    groups.append(sorted((order[k], order[k + 1])))
+                    matched[order[k]] = matched[order[k + 1]] = True
+            else:
+                # generic fallback: greedy min-angle matching, leftovers single
+                pairs = sorted(
+                    ((angle[i, j], i, j) for i in comp for j in adj[i] if i < j)
+                )
+                for _, i, j in pairs:
+                    if not matched[i] and not matched[j]:
+                        groups.append([i, j])
+                        matched[i] = matched[j] = True
+                for i in comp:
+                    if not matched[i]:
+                        groups.append([i])
+                        matched[i] = True
+        return sorted(groups)
+
     def theoretical_misorientations(self) -> np.ndarray:
         variants = self.variant_quaternions()
         n = len(variants)

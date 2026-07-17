@@ -80,6 +80,7 @@ class _ReconstructionWorker(QThread):
 
 class ReconstructionPanel(QWidget):
     run_requested = Signal()
+    compare_requested = Signal()
     reconstruction_finished = Signal(object)
 
     def __init__(self):
@@ -108,6 +109,13 @@ class ReconstructionPanel(QWidget):
         self._stop_btn.setEnabled(False)
         self._stop_btn.clicked.connect(self._cancel)
         btn_layout.addWidget(self._stop_btn)
+
+        self._compare_btn = QPushButton("Compare…")
+        self._compare_btn.setToolTip(
+            "Run several parameter sets on this map and rank them by fit"
+        )
+        self._compare_btn.clicked.connect(self.compare_requested.emit)
+        btn_layout.addWidget(self._compare_btn)
         layout.addLayout(btn_layout)
 
         progress_layout = QHBoxLayout()

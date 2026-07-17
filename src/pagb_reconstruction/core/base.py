@@ -15,7 +15,9 @@ from pagb_reconstruction.core.crystal import (
 
 
 class Displayable(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    # extra="forbid": a typo'd kwarg (e.g. a misspelled config field) raises
+    # instead of being silently dropped and reading as "the setting did nothing".
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
     _ui_title: ClassVar[str] = ""
 

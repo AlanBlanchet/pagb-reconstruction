@@ -85,8 +85,10 @@ QTabBar::tab:selected {
 QPushButton {
   padding: 6px 14px;
   border-radius: $radius;
-  border: 1px solid $border;
-  background: $surface;
+  // border_strong (not border): an enabled outline button must read as clearly
+  // interactive, not be mistaken for the faint-bordered disabled state.
+  border: 1px solid $border_strong;
+  background: $elevated;
   color: $fg;
 }
 QPushButton:hover { background: $elevated; border-color: $border_strong; }

@@ -461,6 +461,7 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self):
         self._reconstruction_panel.run_requested.connect(self._run_reconstruction)
+        self._reconstruction_panel.compare_requested.connect(self._open_compare)
         self._reconstruction_panel.reconstruction_finished.connect(
             self._on_reconstruction_done
         )
@@ -638,6 +639,30 @@ class MainWindow(QMainWindow):
             f"Reconstruction started — algorithm={full_config.algorithm}, OR={or_config}"
         )
         self._recon_start = datetime.now()
+
+    def _open_compare(self):
+        if self._ebsd_map is None:
+            self._status_bar.showMessage("No data loaded")
+            return
+        from pagb_reconstruction.ui.widgets.compare_dialog import CompareDialog
+
+        dlg = CompareDialog(self._ebsd_map, self._param_panel.get_config(), self)
+        dlg.run_chosen.connect(self._on_compare_chosen)
+        dlg.exec()
+
+    def _on_compare_chosen(self, run):
+        # Adopt the winning parameters; if the comparison ran on the full map its
+        # result is directly usable, otherwise the user re-runs on the full map.
+        self._param_panel.set_config(run.config)
+        if run.result.parent_grain_ids.size == self._ebsd_map.crystal_map.size:
+            self._recon_start = datetime.now()
+            self._on_reconstruction_done(run.result)
+            self._log(f"Compare: applied result of '{run.name}'")
+        else:
+            self._status_bar.showMessage(
+                f"Parameters of '{run.name}' applied — press Run for the full map"
+            )
+            self._log(f"Compare: adopted parameters of '{run.name}' (preview crop)")
 
     def _on_reconstruction_done(self, result):
         if result is not None:

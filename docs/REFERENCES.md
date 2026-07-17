@@ -56,11 +56,22 @@ code any single method. Each entry notes where it informs the app.
    deep-learning-from-micrograph alternative (out of scope for EBSD input, noted
    for completeness).
 
-## Roadmap the literature supports (not yet implemented)
+## Roadmap the literature supports
 
-- Compare approaches side by side, scored on shared fit metrics (Taylor 2024).
+Done:
+
+- Compare approaches side by side, scored on shared fit metrics (Taylor 2024) —
+  the Compare… dialog: presets + one-field sweep, ranked best-fit-first, apply
+  the winner's parameters.
+- Variant merging 24→12 for large-map performance (Hielscher 2022 §5.4) —
+  `merge_variants_deg` (12° pairs the KS 10.53° block variants; matching per
+  Bain-group cycle, variant precision restored after clustering).
+
+Not yet implemented:
+
 - Retained-austenite seeded growth for partially transformed maps (Niessen 2022).
 - Σ3 annealing-twin detection/merging toggle (Sun 2023; Hielscher 2022).
-- Variant merging 24→12 + early stopping for large-map performance (Hielscher 2022).
-- Iterative OR refinement robustness and pole-figure back-calculation overlay
+- Pole-figure back-calculated-variant overlay + per-OR mean angular deviation
   (Hielscher 2022; Taylor 2024).
+- Pre-reconstruction non-indexed-pixel fill toggle (Taylor 2024) — display-side
+  fill exists; reconstruction-time fill still open.

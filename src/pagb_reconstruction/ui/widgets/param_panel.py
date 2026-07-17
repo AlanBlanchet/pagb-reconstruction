@@ -66,6 +66,7 @@ _FIELD_GROUPS = {
         "threshold_deg",
         "tolerance_deg",
         "inflation_power",
+        "merge_variants_deg",
         "min_cluster_size",
     ],
     "Post-processing": [
@@ -222,8 +223,18 @@ class SegmentedControl(QWidget):
             btn.style().unpolish(btn)
             btn.style().polish(btn)
 
-    def current_text(self) -> str:
+    def current_text(self) -> str | None:
+        if self._active_index < 0:
+            return None
         return self._buttons[self._active_index].text()
+
+    def set_current(self, text: str | None):
+        """Programmatic selection; ``None`` deselects every segment (the shown
+        values match no preset). Does not re-emit selection_changed."""
+        self._active_index = next(
+            (i for i, b in enumerate(self._buttons) if b.text() == text), -1
+        )
+        self._apply_styles()
 
 
 class CollapsibleCard(QWidget):
@@ -390,6 +401,22 @@ class ParamPanel(QWidget):
         if preset is None:
             return
         self._config = preset
+        self._build_cards()
+
+    def set_config(self, config: ReconstructionConfig):
+        """Adopt a full configuration (e.g. the winner of a comparison run) and
+        sync the preset tabs — highlight a matching preset, deselect otherwise
+        (a stale highlight invites a click that silently resets the values)."""
+        self._config = config
+        match = next(
+            (
+                name
+                for name, preset in _PRESETS.items()
+                if preset.model_dump() == config.model_dump()
+            ),
+            None,
+        )
+        self._preset_control.set_current(match)
         self._build_cards()
 
     def get_config(self) -> ReconstructionConfig:
