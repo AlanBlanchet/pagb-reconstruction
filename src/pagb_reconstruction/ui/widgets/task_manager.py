@@ -25,7 +25,7 @@ class TaskItem(QWidget):
         self._tick_timer = QTimer(self)
         self._tick_timer.timeout.connect(self._update_time)
         self._tick_timer.start(1000)
-        self.setFixedHeight(28)
+        self.setFixedHeight(32)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 2, 6, 2)
@@ -106,7 +106,7 @@ class TaskManager(QWidget):
         super().__init__(parent)
         self._tasks: dict[str, TaskItem] = {}
         self._dismiss_timers: dict[str, QTimer] = {}
-        self.setFixedWidth(300)
+        self.setFixedWidth(320)
         # A plain QWidget subclass paints no stylesheet background without this.
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)

@@ -36,6 +36,7 @@ from pagb_reconstruction.core.updater import UpdateChecker
 from pagb_reconstruction.io.base import load_ebsd
 from pagb_reconstruction.io.reconstruction_export import ReconstructionExporter
 from pagb_reconstruction.ui.theme import THEMES, icon, set_theme
+from pagb_reconstruction.ui.workspaces import PROFILES, apply_profile
 from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
 from pagb_reconstruction.ui.widgets.or_panel import ORPanel
 from pagb_reconstruction.ui.widgets.param_panel import ParamPanel
@@ -98,6 +99,10 @@ class MainWindow(QMainWindow):
 
         self._grain_info = QWidget()
         self._grain_form = QFormLayout(self._grain_info)
+        _hint = QLabel("Click a grain on the map to inspect it")
+        _hint.setWordWrap(True)
+        _hint.setObjectName("infoHint")
+        self._grain_form.addRow(_hint)
         self._grain_labels: dict[str, QLabel] = {}
         for field in (
             "Grain ID",
@@ -262,6 +267,16 @@ class MainWindow(QMainWindow):
             view_menu.addAction(action)
 
         view_menu.addSeparator()
+        workspace_menu = view_menu.addMenu("Workspace")
+        workspace_menu.setIcon(icon("layers"))
+        for i, prof in enumerate(PROFILES.values(), start=1):
+            act = workspace_menu.addAction(icon(prof.icon), prof.name)
+            act.setShortcut(QKeySequence(f"Ctrl+{i}"))
+            act.triggered.connect(
+                lambda checked=False, p=prof: apply_profile(self, p)
+            )
+
+        view_menu.addSeparator()
         theme_menu = view_menu.addMenu("Theme")
         for theme_name in THEMES:
             action = theme_menu.addAction(theme_name)
@@ -301,7 +316,7 @@ class MainWindow(QMainWindow):
         toolbar.setObjectName("main_toolbar")
         # Label every action: icon-only left Run as an unidentifiable play glyph
         # and made Zoom/Export icons ambiguous.
-        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.addToolBar(toolbar)
 
         open_action = QAction(icon("open"), "Open", self)
@@ -359,7 +374,7 @@ class MainWindow(QMainWindow):
 
         view_toolbar = QToolBar("View")
         view_toolbar.setObjectName("view_toolbar")
-        view_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        view_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.addToolBarBreak()
         self.addToolBar(view_toolbar)
         self._view_toolbar = view_toolbar
@@ -624,6 +639,8 @@ class MainWindow(QMainWindow):
         self._recon_start = datetime.now()
 
     def _on_reconstruction_done(self, result):
+        if result is not None:
+            apply_profile(self, PROFILES["Analyze"])
         self._progress_bar.setVisible(False)
         self._result = result
         if result is None:
@@ -793,6 +810,13 @@ class MainWindow(QMainWindow):
         geo = self._settings.value("window_geometry")
         if geo:
             self.restoreGeometry(geo)
+        else:
+            # Size to the real screen: showMaximized() relies on a window
+            # manager, absent in sandboxes/CI, and silently leaves the
+            # 1200x800 minimum.
+            screen = QApplication.primaryScreen()
+            if screen:
+                self.setGeometry(screen.availableGeometry())
         state = self._settings.value("window_state")
         if state:
             self.restoreState(state)

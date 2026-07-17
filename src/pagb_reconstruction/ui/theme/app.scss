@@ -334,3 +334,6 @@ QLabel#computingOverlay {
   padding: 12px 24px;
   border-radius: 8px;
 }
+
+QMainWindow > QTabBar::tab { min-width: 90px; }
+QLabel#infoHint { color: $text_muted; font-style: italic; padding-bottom: 6px; }

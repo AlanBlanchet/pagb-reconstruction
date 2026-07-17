@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from pagb_reconstruction.core.ebsd_map import EBSDMap
 from pagb_reconstruction.core.grain_metrics import GrainMetrics
 from pagb_reconstruction.core.reconstruction import ReconstructionResult
+from pagb_reconstruction.ui.plotting import StyledPlot
 from pagb_reconstruction.ui.theme import active_theme
 
 
@@ -26,7 +27,8 @@ class StatCard(QWidget):
         super().__init__()
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setFixedHeight(64)
-        self.setMinimumWidth(70)
+        self.setMinimumWidth(110)
+        self.setMaximumWidth(200)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
@@ -46,37 +48,17 @@ class StatCard(QWidget):
         self._value.setText(text)
 
 
-class ChartWidget(QWidget):
-    def __init__(self, title: str):
-        super().__init__()
-        self._title = title
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(2, 2, 2, 2)
-        layout.setSpacing(0)
+class ChartWidget(StyledPlot):
+    """A dashboard chart: a StyledPlot (copy/export/edit built in) that also
+    expands into a dialog on double-click."""
 
-        self._plot_widget = pg.PlotWidget()
-        self._plot_widget.setTitle(title, size="9pt")
-        self._plot_widget.setMinimumSize(200, 150)
-        self._plot_widget.showGrid(x=True, y=True, alpha=0.2)
-        self._plot_widget.setMouseEnabled(x=False, y=False)
-        layout.addWidget(self._plot_widget)
-
-        self._plot_widget.scene().sigMouseClicked.connect(self._on_click)
-        self._apply_style()
-
-    def _apply_style(self):
-        p = active_theme()
-        self._plot_widget.setBackground(p.surface_dim)
-        self._plot_widget.getAxis("bottom").setPen(pg.mkPen(p.border))
-        self._plot_widget.getAxis("left").setPen(pg.mkPen(p.border))
-        self._plot_widget.getAxis("bottom").setTextPen(pg.mkPen(p.text_muted))
-        self._plot_widget.getAxis("left").setTextPen(pg.mkPen(p.text_muted))
+    def __init__(self, title: str, x_label: str = "", y_label: str = ""):
+        super().__init__(title, x_label=x_label, y_label=y_label)
+        self._widget.setMinimumSize(200, 190)
+        self._widget.scene().sigMouseClicked.connect(self._on_click)
 
     def plot(self) -> pg.PlotItem:
-        return self._plot_widget.getPlotItem()
-
-    def clear(self):
-        self._plot_widget.clear()
+        return self.plot_item
 
     def _on_click(self, event):
         if event.double():
@@ -84,16 +66,16 @@ class ChartWidget(QWidget):
 
     def _show_expanded(self):
         dialog = QDialog(self)
-        dialog.setWindowTitle(self._title)
+        dialog.setWindowTitle(self.title)
         dialog.resize(600, 400)
         layout = QVBoxLayout(dialog)
         expanded = pg.PlotWidget()
-        expanded.setTitle(self._title)
+        expanded.setTitle(self.title)
         expanded.showGrid(x=True, y=True, alpha=0.2)
         p = active_theme()
         expanded.setBackground(p.surface_dim)
 
-        source_plot = self._plot_widget.getPlotItem()
+        source_plot = self.plot_item
         for item in source_plot.listDataItems():
             if hasattr(item, "getData"):
                 x, y = item.getData()
@@ -145,9 +127,11 @@ class StatsDashboard(QWidget):
         cards_row.addWidget(self._card_fit)
         cards_row.addWidget(self._card_recon)
         cards_row.addWidget(self._card_time)
+        cards_row.addStretch()
         layout.addLayout(cards_row)
 
         metrics_group = QGroupBox("Grain Size Measurement")
+        metrics_group.setMaximumWidth(620)
         metrics_layout = QVBoxLayout(metrics_group)
         self._metrics_form = self._grain_metrics.to_widget()
         metrics_layout.addWidget(self._metrics_form)
@@ -166,10 +150,10 @@ class StatsDashboard(QWidget):
         self._chart_grid = QGridLayout()
         self._chart_grid.setSpacing(4)
 
-        self._chart_grain_size = ChartWidget("Grain Size")
-        self._chart_misori = ChartWidget("Misorientation")
-        self._chart_variants = ChartWidget("Variants")
-        self._chart_fit = ChartWidget("Fit Angles")
+        self._chart_grain_size = ChartWidget("Grain Size", "Size (px)", "Count")
+        self._chart_misori = ChartWidget("Misorientation", "Angle (\u00b0)", "Count")
+        self._chart_variants = ChartWidget("Variants", "Variant ID", "Pixels")
+        self._chart_fit = ChartWidget("Fit Angles", "Fit (\u00b0)", "Count")
 
         self._chart_grid.addWidget(self._chart_grain_size, 0, 0)
         self._chart_grid.addWidget(self._chart_misori, 0, 1)
