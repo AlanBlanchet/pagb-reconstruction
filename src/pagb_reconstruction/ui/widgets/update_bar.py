@@ -1,6 +1,6 @@
 import warnings
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QPushButton, QWidget
 
 from pagb_reconstruction.core.updater import UpdateDownloader, relaunch_from
@@ -24,8 +24,11 @@ class UpdateBar(QWidget):
 
         self._progress = QProgressBar()
         self._progress.setObjectName("updateProgress")
-        self._progress.setFixedWidth(120)
-        self._progress.setTextVisible(False)
+        self._progress.setFixedWidth(140)
+        # Show the % so a slow download (the app bundle is large) visibly
+        # progresses and the user knows it hasn't stalled.
+        self._progress.setTextVisible(True)
+        self._progress.setFormat("%p%")
         self._progress.setVisible(False)
         layout.addWidget(self._progress)
 
@@ -64,6 +67,7 @@ class UpdateBar(QWidget):
         self.setVisible(True)
 
     def _start_download(self):
+        self._label.setText("Downloading update...")
         self._download_btn.setEnabled(False)
         self._download_btn.setText("Downloading...")
         self._progress.setValue(0)
@@ -76,11 +80,13 @@ class UpdateBar(QWidget):
         self._downloader.start()
 
     def _on_downloaded(self, binary_path: str):
-        self._label.setText("Update downloaded — restarting...")
-        self._progress.setVisible(False)
+        self._progress.setValue(100)
+        self._label.setText("Update downloaded — restarting (this can take a moment)...")
         self._download_btn.setVisible(False)
         self._dismiss_btn.setVisible(False)
-        relaunch_from(binary_path)
+        # Defer the relaunch a beat so the "restarting" message actually paints
+        # before this process exits (relaunch_from calls sys.exit).
+        QTimer.singleShot(600, lambda: relaunch_from(binary_path))
 
     def _on_download_error(self, msg: str):
         self._label.setText(f"Update failed: {msg}")
