@@ -10,6 +10,10 @@ permissions:
 jobs:
   build-linux:
     runs-on: ubuntu-latest
+    # Headless runner: force Qt offscreen so PyInstaller's pyqtgraph submodule
+    # collection (which imports GUI modules) doesn't try xcb and SIGABRT.
+    env:
+      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
         with:
