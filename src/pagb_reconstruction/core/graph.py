@@ -6,6 +6,7 @@ from pagb_reconstruction.core.constants import ClusteringDefaults
 from pagb_reconstruction.core.grain import Grain
 from pagb_reconstruction.core.orientation_relationship import OrientationRelationship
 from pagb_reconstruction.utils.array_ops import grain_index_map, remap_labels
+from pagb_reconstruction.utils.compute import Quaternions
 from pagb_reconstruction.utils.math_ops import MathOps, MisorientationOps
 
 _CLUSTERING = ClusteringDefaults()
@@ -176,18 +177,14 @@ def build_variant_graph(
     if progress_callback:
         progress_callback(f"Computing variant edges ({len(edges)} pairs)", 0.35)
 
-    rows, cols, weights = MisorientationOps.build_variant_edges(
-        np.ascontiguousarray(all_candidates, dtype=np.float64),
+    rows, cols, weights = Quaternions.variant_edges(
+        all_candidates,
         edge_pairs,
-        np.ascontiguousarray(parent_sym_quats, dtype=np.float64),
-        n_variants,
+        parent_sym_quats,
         threshold_deg,
         tolerance_deg,
         _CLUSTERING.min_edge_weight,
     )
-
-    mask = rows >= 0
-    rows, cols, weights = rows[mask], cols[mask], weights[mask]
 
     all_rows = np.concatenate([rows, cols])
     all_cols = np.concatenate([cols, rows])

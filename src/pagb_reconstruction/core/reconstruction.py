@@ -19,11 +19,8 @@ from pagb_reconstruction.utils.array_ops import (
     grain_index_map,
     remap_labels,
 )
-from pagb_reconstruction.utils.math_ops import (
-    MisorientationOps,
-    QuaternionOps,
-    pairwise_disorientation_below,
-)
+from pagb_reconstruction.utils.compute import Quaternions
+from pagb_reconstruction.utils.math_ops import MisorientationOps, QuaternionOps
 
 
 class ReconstructionConfig(Displayable):
@@ -429,7 +426,7 @@ class ReconstructionEngine:
         # components are union-order-independent, so the result is unchanged.)
         valid = unique_labels[unique_labels < len(self._parent_quats)]
         if len(valid) >= 2:
-            below = pairwise_disorientation_below(
+            below = Quaternions.pairwise_below(
                 self._parent_quats[valid], sym_quats, self._config.merge_similar_deg
             )
             ii, jj = np.where(below)
@@ -537,14 +534,10 @@ class ReconstructionEngine:
         n_variants = len(variants)
         parent, child, valid = self._grain_parent_child()
 
-        # Vectorised over all grains × variants: predicted child = variant∘parent,
-        # then the raw disorientation to the measured child; best variant = argmax
-        # |w| (== min angle). Replaces a per-grain per-variant orix-object loop.
-        predicted = QuaternionOps.multiply_nd(variants[None, :, :], parent[:, None, :])
-        mori = QuaternionOps.multiply_nd(
-            QuaternionOps.conjugate_nd(predicted), child[:, None, :]
-        )
-        best = np.argmax(np.abs(mori[..., 0]), axis=1).astype(np.int32)
+        # Best variant per grain on the compute device (GPU when available):
+        # predicted child = variant ∘ parent, then the variant minimising the
+        # disorientation to the measured child.
+        best = Quaternions.best_variant(variants, parent, child)
 
         variants_per_packet = max(n_variants // 4, 1)
         n_bain = min(n_variants, 3)
@@ -567,16 +560,9 @@ class ReconstructionEngine:
         variants = self._or.variant_quaternions()  # (K, 4)
         parent, child, valid = self._grain_parent_child()
 
-        # Vectorised: candidate parents (~variant ∘ child) for every grain, then
-        # the symmetry-reduced disorientation to the assigned parent; fit = the
-        # closest candidate. Replaces a per-grain orix candidate_parents loop.
-        candidates = QuaternionOps.multiply_nd(
-            QuaternionOps.conjugate_nd(variants)[None, :, :], child[:, None, :]
-        )  # (n, K, 4)
-        dev = QuaternionOps.disorientation_deg_nd(
-            candidates, parent[:, None, :], sym_quats
-        )  # (n, K)
-        fit_per_grain = dev.min(axis=1)
+        # Candidate parents' closest disorientation to the assigned parent, on
+        # the compute device (GPU when available) — the per-grain fit angle.
+        fit_per_grain = Quaternions.fit_angles(variants, parent, child, sym_quats)
 
         for i, grain in enumerate(self._grains):
             if valid[i]:

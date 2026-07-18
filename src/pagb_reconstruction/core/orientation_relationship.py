@@ -6,6 +6,8 @@ from orix.quaternion import Orientation
 
 from pagb_reconstruction.core.base import Displayable
 from pagb_reconstruction.core.phase import PhaseConfig
+from pagb_reconstruction.utils.compute import Quaternions
+from pagb_reconstruction.utils.math_ops import MisorientationOps
 
 
 def _register(key: str) -> Callable:
@@ -142,21 +144,12 @@ class OrientationRelationship(Displayable):
 
     def candidate_parents_batch(self, child_quaternions: np.ndarray) -> np.ndarray:
         """Vectorised :meth:`candidate_parents` over many children at once:
-        ``(n, 4)`` child quaternions → ``(n, K, 4)`` candidate parents. Replaces
-        the per-grain orix loop that dominated ``build_variant_graph`` — output
-        identical to calling :meth:`candidate_parents` per child."""
-        from pagb_reconstruction.utils.math_ops import (
-            quaternion_conjugate_nd,
-            quaternion_multiply_nd,
+        ``(n, 4)`` child quaternions → ``(n, K, 4)`` candidate parents, on the
+        compute device (GPU when available). Replaces the per-grain orix loop
+        that dominated ``build_variant_graph``."""
+        return Quaternions.candidate_parents(
+            self.variant_quaternions(), np.asarray(child_quaternions)
         )
-
-        variants = self.variant_quaternions()  # (K, 4)
-        child = np.asarray(child_quaternions, dtype=np.float64)
-        cand = quaternion_multiply_nd(
-            quaternion_conjugate_nd(variants)[None, :, :], child[:, None, :]
-        )
-        sign = np.where(cand[..., 0:1] < 0, -1.0, 1.0)
-        return cand * sign
 
     def variant_merge_groups(self, merge_deg: float) -> list[list[int]]:
         """Pair up variants with a small mutual misorientation (Hielscher et
@@ -171,8 +164,6 @@ class OrientationRelationship(Displayable):
         n = len(variants)
         if merge_deg <= 0:
             return [[i] for i in range(n)]
-
-        from pagb_reconstruction.utils.math_ops import MisorientationOps
 
         csym = np.ascontiguousarray(self.child_phase.symmetry.data, dtype=np.float64)
         angle = np.zeros((n, n))

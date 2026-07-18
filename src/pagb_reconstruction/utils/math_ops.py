@@ -80,19 +80,6 @@ def _misori_angle_simple(
     return min_angle
 
 
-@njit(cache=True, parallel=True)
-def _pairwise_disor_below(
-    quats: np.ndarray, sym_quats: np.ndarray, threshold: float
-) -> np.ndarray:
-    n = quats.shape[0]
-    out = np.zeros((n, n), dtype=np.bool_)
-    for i in prange(n):
-        for j in range(i + 1, n):
-            if _misori_angle_simple(quats[i], quats[j], sym_quats) < threshold:
-                out[i, j] = True
-    return out
-
-
 @njit(cache=True)
 def cumulative_gaussian(x: float, threshold: float, tolerance: float) -> float:
     if tolerance <= 0:
@@ -247,104 +234,13 @@ def _refine_or_cost(
     return costs.sum() / n_pairs
 
 
-@njit(cache=True, parallel=True)
-def _build_variant_edges(
-    all_candidates: np.ndarray,
-    edge_pairs: np.ndarray,
-    parent_sym_quats: np.ndarray,
-    n_variants: int,
-    threshold: float,
-    tolerance: float,
-    min_weight: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    n_edges = edge_pairs.shape[0]
-    per_edge = n_variants * n_variants
-    total_slots = n_edges * per_edge
-
-    rows = np.full(total_slots, -1, dtype=np.int64)
-    cols = np.full(total_slots, -1, dtype=np.int64)
-    weights = np.zeros(total_slots, dtype=np.float64)
-
-    for e in prange(n_edges):
-        i = edge_pairs[e, 0]
-        j = edge_pairs[e, 1]
-        base = e * per_edge
-        count = 0
-        for va in range(n_variants):
-            for vb in range(n_variants):
-                angle = _misori_angle_simple(
-                    all_candidates[i, va], all_candidates[j, vb], parent_sym_quats
-                )
-                w = cumulative_gaussian(angle, threshold, tolerance)
-                if w > min_weight:
-                    rows[base + count] = i * n_variants + va
-                    cols[base + count] = j * n_variants + vb
-                    weights[base + count] = w
-                    count += 1
-
-    return rows, cols, weights
-
-
-def quaternion_multiply_nd(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """Hamilton product broadcast over arbitrary leading dims; ``a``, ``b`` are
-    ``(..., 4)`` and broadcast together. Same convention as
-    :func:`quaternion_multiply` and orix ``a * b`` — verified identical — but
-    fully vectorised, replacing per-element Python/orix loops."""
-    aw, ax, ay, az = a[..., 0], a[..., 1], a[..., 2], a[..., 3]
-    bw, bx, by, bz = b[..., 0], b[..., 1], b[..., 2], b[..., 3]
-    return np.stack(
-        [
-            aw * bw - ax * bx - ay * by - az * bz,
-            aw * bx + ax * bw + ay * bz - az * by,
-            aw * by - ax * bz + ay * bw + az * bx,
-            aw * bz + ax * by - ay * bx + az * bw,
-        ],
-        axis=-1,
-    )
-
-
-def quaternion_conjugate_nd(q: np.ndarray) -> np.ndarray:
-    out = q.copy()
-    out[..., 1:] *= -1
-    return out
-
-
-def disorientation_deg_nd(
-    q1: np.ndarray, q2: np.ndarray, sym_quats: np.ndarray
-) -> np.ndarray:
-    """One-sided symmetry-reduced disorientation angle (deg), broadcast. ``q1``,
-    ``q2`` are ``(..., 4)``; ``sym_quats`` is ``(S, 4)``. Matches the numba
-    :func:`_misori_angle_simple` (symmetry applied on the left only), batched."""
-    mori = quaternion_multiply_nd(q1, quaternion_conjugate_nd(q2))
-    # sym (S,4) broadcasts against mori[...,None,:] (...,1,4) -> (...,S,4)
-    equiv_w = quaternion_multiply_nd(sym_quats, mori[..., None, :])[..., 0]
-    w = np.clip(np.abs(equiv_w), 0.0, 1.0)
-    return np.degrees(2.0 * np.arccos(w)).min(axis=-1)
-
-
 class QuaternionOps:
     multiply = staticmethod(quaternion_multiply)
     conjugate = staticmethod(quaternion_conjugate)
     angle = staticmethod(quaternion_angle)
     multiply_batch = staticmethod(quaternion_multiply_batch)
-    multiply_nd = staticmethod(quaternion_multiply_nd)
-    conjugate_nd = staticmethod(quaternion_conjugate_nd)
-    disorientation_deg_nd = staticmethod(disorientation_deg_nd)
     from_rotation_matrix = staticmethod(_rotation_matrix_to_quat)
     symmetric_mean = staticmethod(_symmetric_mean)
-
-
-def pairwise_disorientation_below(
-    quats: np.ndarray, sym_quats: np.ndarray, threshold_deg: float
-) -> np.ndarray:
-    """Upper-triangular boolean matrix: entry (i, j) True iff the symmetry-reduced
-    disorientation between ``quats[i]`` and ``quats[j]`` is below ``threshold_deg``
-    (numba-parallel, no per-pair Python dispatch or O(n²) intermediate)."""
-    return _pairwise_disor_below(
-        np.ascontiguousarray(quats, dtype=np.float64),
-        np.ascontiguousarray(sym_quats, dtype=np.float64),
-        float(threshold_deg),
-    )
 
 
 class MisorientationOps:
@@ -352,7 +248,6 @@ class MisorientationOps:
     _angle_simple = staticmethod(_misori_angle_simple)
     _axis_angle_with_symmetry = staticmethod(_misori_axis_angle_with_symmetry)
     refine_or_cost = staticmethod(_refine_or_cost)
-    build_variant_edges = staticmethod(_build_variant_edges)
 
     @staticmethod
     def pairs(
