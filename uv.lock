@@ -1558,6 +1558,10 @@ dependencies = [
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "superqt" },
+]
+
+[package.optional-dependencies]
+gpu = [
     { name = "torch" },
 ]
 
@@ -1586,8 +1590,9 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.7.2" },
     { name = "scipy", specifier = ">=1.15.3" },
     { name = "superqt", specifier = ">=0.8.1" },
-    { name = "torch", specifier = ">=2.0" },
+    { name = "torch", marker = "extra == 'gpu'", specifier = ">=2.0" },
 ]
+provides-extras = ["gpu"]
 
 [package.metadata.requires-dev]
 dev = [

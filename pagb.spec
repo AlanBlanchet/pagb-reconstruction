@@ -32,7 +32,10 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    # torch is an optional GPU accelerator (used from source when a GPU is
+    # present); the desktop bundle omits its ~700 MB and runs the numpy
+    # fallback — see utils/compute.py.
+    excludes=["torch", "torchgen", "functorch", "sympy", "triton"],
     noarchive=False,
 )
 

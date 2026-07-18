@@ -22,3 +22,24 @@ def test_specs_bundle_scss_and_qtawesome():
         txt = Path(spec).read_text()
         assert "app.scss" in txt, f"{spec} does not bundle app.scss"
         assert "qtawesome" in txt, f"{spec} does not collect qtawesome data"
+
+
+def test_specs_exclude_torch():
+    # torch is an optional GPU accelerator (numpy fallback otherwise); bundling
+    # its ~700 MB into the desktop build is a regression — keep it excluded.
+    for spec in ("pagb.spec", "pagb-onefile.spec"):
+        txt = Path(spec).read_text()
+        assert '"torch"' in txt and "excludes" in txt, f"{spec} must exclude torch"
+
+
+def test_compute_falls_back_without_torch():
+    # The numpy backend must be a complete, working path (the frozen build runs
+    # it when torch is excluded).
+    from pagb_reconstruction.utils.compute import _NumpyQuaternions
+
+    import numpy as np
+
+    q = np.array([[1.0, 0, 0, 0], [0.0, 1, 0, 0]])
+    sym = np.array([[1.0, 0, 0, 0]])
+    below = _NumpyQuaternions.pairwise_below(q, sym, 200.0)
+    assert below.shape == (2, 2) and bool(below[0, 1])

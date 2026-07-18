@@ -22,8 +22,13 @@ dependencies = [
     "scikit-learn>=1.7.2",
     "scipy>=1.15.3",
     "superqt>=0.8.1",
-    "torch>=2.0",
 ]
+
+[project.optional-dependencies]
+# Optional GPU acceleration: `uv sync --extra gpu` installs torch (device-aware
+# in utils/compute.py, GPU when present). The desktop build omits it — the numpy
+# fallback runs the same maths on the CPU — so a no-GPU user carries no ~700 MB.
+gpu = ["torch>=2.0"]
 
 [project.scripts]
 pagb = "pagb_reconstruction.app:main"
