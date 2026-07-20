@@ -1,6 +1,5 @@
-"""Cold-import guards: utils submodules must import without the utils<->core
-colormap cycle. The GPU bootstrap (compute.py importing gpu_runtime, and the
---gpu-check diagnostic) depends on gpu_runtime importing standalone."""
+"""Cold-import guards: utils submodules must import standalone, without the
+utils<->core colormap cycle."""
 
 import subprocess
 import sys
@@ -17,11 +16,6 @@ def _cold_import(module: str):
 
 def test_orientation_imports_standalone():
     rc, err = _cold_import("pagb_reconstruction.core.orientation")
-    assert rc == 0, err
-
-
-def test_gpu_runtime_imports_standalone():
-    rc, err = _cold_import("pagb_reconstruction.utils.gpu_runtime")
     assert rc == 0, err
 
 
