@@ -131,3 +131,30 @@ def test_size_filters_disabled_are_noops(synthetic_multi_parent):
     eng._revert_small_clusters()
     eng._remove_small_parents()
     assert eng._parent_labels[0] == 0, "disabled filters must not remove anything"
+
+
+def test_merge_similar_only_merges_adjacent(synthetic_multi_parent):
+    """merge_similar must merge only SPATIALLY ADJACENT parents — fusing
+    globally-similar but distant parents produces giant over-merged grains
+    (issue #9: 98% 'reconstructed' but one blob, high fit, no visible grains)."""
+    emap, _, _ = synthetic_multi_parent
+    eng = ReconstructionEngine(emap, ReconstructionConfig(merge_similar_deg=7.0))
+    # three parents with the SAME orientation (all mutually "similar"): g1-g2 are
+    # neighbours; g3 is isolated (not adjacent to either).
+    eng._grains = [
+        _fake_grain(1, 10, 1),
+        _fake_grain(2, 10, 1),
+        _fake_grain(3, 10, 1),
+    ]
+    eng._grains[0].neighbor_ids = [2]
+    eng._grains[1].neighbor_ids = [1]
+    eng._grains[2].neighbor_ids = []
+    eng._grains[0].pixel_indices = np.array([0])
+    eng._grains[1].pixel_indices = np.array([1])
+    eng._grains[2].pixel_indices = np.array([2])
+    eng._parent_quats = np.array([[1.0, 0, 0, 0]] * 3)
+    eng._parent_labels = np.array([0, 1, 2])
+    eng._merge_similar()
+    labels = eng._parent_labels
+    assert labels[0] == labels[1], "adjacent + similar parents must merge"
+    assert labels[2] != labels[0], "non-adjacent similar parent must NOT merge"

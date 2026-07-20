@@ -353,22 +353,33 @@ class EBSDMap(SpatialMap):
     )
     def parent_ipf_map(self) -> np.ndarray:
         parent_quats = self._result.parent_orientations
+        parent_ids = self._to_grid(self._result.parent_grain_ids, fill=-1)
+        reconstructed = parent_ids >= 0
         phases = self.crystal_map.phases_in_data
         sym = None
         for pid in phases.ids:
             if pid >= 0 and phases[pid].point_group is not None:
                 sym = phases[pid].point_group
                 break
-        if sym is None:
-            return np.zeros((*self.shape, 3))
-        ori = Orientation(parent_quats.reshape(-1, 4), symmetry=sym)
-        key = IPFColorKeyTSL(sym, direction=Vector3d.zvector())
-        rgb = key.orientation2color(ori)
-        rgb_grid = self._to_grid(rgb)
-        parent_ids = self._to_grid(self._result.parent_grain_ids)
-        boundary = boundaries_from_2d(parent_ids)
-        rgb_grid[boundary] = 0.1
-        return rgb_grid
+
+        # Unreconstructed pixels are neutral grey (never black), so a partial
+        # or empty reconstruction reads honestly instead of a blank frame
+        # (issue #9: "98% reconstructed but I see nothing").
+        rgb = np.full((*self.shape, 3), 0.18)
+        if sym is not None:
+            ori = Orientation(parent_quats.reshape(-1, 4), symmetry=sym)
+            colors = self._to_grid(IPFColorKeyTSL(sym, direction=Vector3d.zvector())
+                                    .orientation2color(ori))
+            rgb[reconstructed] = colors[reconstructed]
+        else:
+            # No crystal symmetry to build an IPF key — fall back to distinct
+            # per-grain colours so the grains stay VISIBLE, never an all-black map.
+            cmap = matplotlib.colormaps["tab20"]
+            for i, gid in enumerate(np.unique(parent_ids[reconstructed])):
+                rgb[parent_ids == gid] = cmap(i % 20)[:3]
+
+        rgb[boundaries_from_2d(parent_ids)] = 0.1
+        return rgb
 
     @map_property(
         "Parent + Boundaries",

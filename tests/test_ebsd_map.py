@@ -56,3 +56,42 @@ def test_filled_pixel_data_noop_when_all_indexed():
     q, ph = emap.filled_pixel_data()
     assert np.array_equal(ph, emap.phase_ids)
     assert np.allclose(q, emap.quaternions)
+
+
+def _tiny_result(emap):
+    from pagb_reconstruction.core.reconstruction import ReconstructionResult
+    import numpy as np
+
+    n = emap.crystal_map.size
+    pids = np.arange(n, dtype=np.int32) % 3  # 3 parent grains, all reconstructed
+    quats = np.tile([1.0, 0, 0, 0], (n, 1))
+    z = np.zeros(n, dtype=np.int32)
+    return ReconstructionResult(
+        parent_orientations=quats, parent_grain_ids=pids, fit_angles=np.zeros(n),
+        variant_ids=z, packet_ids=z, block_ids=z, bain_ids=z,
+    )
+
+
+def test_parent_ipf_map_never_all_black():
+    """Issue #9: '98% reconstructed but I see nothing'. The Parent-IPF map must
+    render visible grains, never an all-black frame — even with no symmetry."""
+    emap = _make_map(with_holes=False)
+    emap._result = _tiny_result(emap)
+    rgb = emap.parent_ipf_map()
+    assert rgb.shape == (*emap.shape, 3)
+    # not all black: reconstructed pixels carry real colour
+    assert rgb.reshape(-1, 3).max() > 0.2, "parent IPF map is all black"
+    assert (rgb.reshape(-1, 3).max(axis=1) > 0.05).mean() > 0.5, "map mostly black"
+
+
+def test_parent_ipf_greys_unreconstructed():
+    import numpy as np
+
+    emap = _make_map(with_holes=False)
+    res = _tiny_result(emap)
+    res.parent_grain_ids[:] = -1  # nothing reconstructed
+    emap._result = res
+    rgb = emap.parent_ipf_map().reshape(-1, 3)
+    # every pixel unreconstructed → the whole frame is neutral grey (~0.18),
+    # never identity-coloured or black.
+    assert np.allclose(rgb, 0.18, atol=1e-6), "unreconstructed pixels must be grey"

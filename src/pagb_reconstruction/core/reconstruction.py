@@ -409,9 +409,10 @@ class ReconstructionEngine:
             return
 
         sym_quats = self._map._primary_symmetry_quats()
-        unique_labels = np.unique(self._parent_labels)
+        labels = self._parent_labels
+        n_parents = len(self._parent_quats)
 
-        merge_map = {int(l): int(l) for l in unique_labels}
+        merge_map = {int(l): int(l) for l in np.unique(labels)}
 
         def _find_root(label):
             label = int(label)
@@ -420,23 +421,39 @@ class ReconstructionEngine:
                 label = merge_map[label]
             return label
 
-        # Merge parent grains within merge_similar_deg. The O(V²) pairwise
-        # disorientation runs in one numba-parallel call; only the small
-        # union-find over below-threshold pairs stays in Python. (Connected
-        # components are union-order-independent, so the result is unchanged.)
-        valid = unique_labels[unique_labels < len(self._parent_quats)]
-        if len(valid) >= 2:
-            below = Quaternions.pairwise_below(
-                self._parent_quats[valid], sym_quats, self._config.merge_similar_deg
-            )
-            ii, jj = np.where(below)
-            for a, b in zip(ii, jj):
-                ri, rj = _find_root(valid[a]), _find_root(valid[b])
-                if ri != rj:
-                    merge_map[rj] = ri
+        # Merge parents within merge_similar_deg ONLY when spatially ADJACENT (a
+        # grain of one neighbours a grain of the other). Merging globally-similar
+        # but distant parents fuses unrelated prior-austenite grains into giant
+        # blobs — 98% "reconstructed" as one over-merged grain, high fit, nothing
+        # visible (issue #9). A chain of adjacent-similar parents still merges
+        # transitively (a real grain the initial clustering split).
+        id_to_idx = grain_index_map(self._grains)
+        adj_pairs: set[tuple[int, int]] = set()
+        for i, grain in enumerate(self._grains):
+            li = int(labels[i]) if i < len(labels) else -1
+            if not 0 <= li < n_parents:
+                continue
+            for nid in grain.neighbor_ids:
+                j = id_to_idx.get(nid)
+                if j is None or j >= len(labels):
+                    continue
+                lj = int(labels[j])
+                if lj != li and 0 <= lj < n_parents:
+                    adj_pairs.add((min(li, lj), max(li, lj)))
 
-        for i in range(len(self._parent_labels)):
-            self._parent_labels[i] = _find_root(self._parent_labels[i])
+        if adj_pairs:
+            pairs = np.array(sorted(adj_pairs))
+            angles = Quaternions.disorientation_deg(
+                self._parent_quats[pairs[:, 0]], self._parent_quats[pairs[:, 1]], sym_quats
+            )
+            for (li, lj), ang in zip(pairs, angles):
+                if ang < self._config.merge_similar_deg:
+                    ri, rj = _find_root(li), _find_root(lj)
+                    if ri != rj:
+                        merge_map[rj] = ri
+
+        for i in range(len(labels)):
+            labels[i] = _find_root(labels[i])
 
     def _merge_inclusions(self):
         if self._config.merge_inclusions_max_size <= 0:
