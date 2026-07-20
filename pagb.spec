@@ -32,10 +32,10 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # torch is an optional GPU accelerator (used from source when a GPU is
-    # present); the desktop bundle omits its ~700 MB and runs the numpy
-    # fallback — see utils/compute.py.
-    excludes=["torch", "torchgen", "functorch", "sympy", "triton"],
+    # The GPU path is numba-compiled kernels (utils/quaternion_kernels.py), not a
+    # tensor library. Excluded here so a stray torch in the build environment
+    # cannot silently add gigabytes to the bundle.
+    excludes=["torch", "torchgen", "functorch", "triton"],
     noarchive=False,
 )
 

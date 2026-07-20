@@ -1,18 +1,14 @@
-"""Both compute backends (torch GPU/CPU and the numpy fallback) must match the
+"""Both compute backends (the compiled kernels and the numpy reference) must match the
 numpy/orix reference — they are interchangeable paths for the reconstruction
-hot loops. torch is optional (the lean frozen build omits it)."""
+hot loops."""
 
 import numpy as np
 import pytest
 
-from pagb_reconstruction.utils.compute import _HAS_TORCH, _NumpyQuaternions
+from pagb_reconstruction.utils.compute import _NumbaQuaternions, _NumpyQuaternions
 from pagb_reconstruction.utils.math_ops import MisorientationOps, quaternion_multiply
 
-_BACKENDS = [_NumpyQuaternions]
-if _HAS_TORCH:
-    from pagb_reconstruction.utils.compute import _TorchQuaternions
-
-    _BACKENDS.append(_TorchQuaternions)
+_BACKENDS = [_NumpyQuaternions, _NumbaQuaternions]
 
 
 def _rand_quats(n, seed):
