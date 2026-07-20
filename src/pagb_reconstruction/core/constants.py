@@ -25,8 +25,11 @@ class SlipSystems(BaseModel):
         [[1, 1, 0], [1, 0, 1], [0, 1, 1], [1, -1, 0], [1, 0, -1], [0, 1, -1]],
         dtype=np.float64,
     )
+    # <111> slip directions, each lying IN its {110} plane (n . d == 0). Systems
+    # 2 and 5 previously used directions with n . d = 2, which is geometrically
+    # impossible and let the Schmid factor exceed its 0.5 maximum.
     bcc_dirs: np.ndarray = np.array(
-        [[1, -1, 1], [1, 1, -1], [-1, 1, 1], [1, 1, 1], [1, -1, 1], [1, 1, -1]],
+        [[1, -1, 1], [1, 1, -1], [1, 1, -1], [1, 1, 1], [1, -1, 1], [1, 1, 1]],
         dtype=np.float64,
     )
     fcc_planes: np.ndarray = np.array(
@@ -49,3 +52,15 @@ class ClusteringDefaults(BaseModel):
     prune_threshold: float = 1e-5
     variant_inflation: float = 1.1
     variant_max_iter: int = 15
+
+
+def slip_family(phase_name: str | None) -> str:
+    """Slip-system family ("bcc" or "fcc") for a phase NAME.
+
+    BCC and FCC are both point group m-3m with 48 operations, so the crystal
+    symmetry cannot tell them apart — selecting on symmetry size handed every
+    cubic phase the FCC systems. Steel defaults to bcc (ferrite / martensite).
+    """
+    name = (phase_name or "").lower()
+    fcc_markers = ("fcc", "austenit", "gamma", "\u03b3")
+    return "fcc" if any(m in name for m in fcc_markers) else "bcc"

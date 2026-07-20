@@ -1,5 +1,6 @@
 """EBSDMap guards — pre-reconstruction non-indexed fill (Taylor et al. 2024)."""
 
+import pytest
 import numpy as np
 from orix.crystal_map import CrystalMap, Phase, PhaseList
 from orix.quaternion import Rotation
@@ -150,3 +151,52 @@ def test_parent_with_child_boundaries_map():
     assert 0.01 < dark < 0.60, f"child boundary coverage looks wrong ({dark:.3f})"
     # and the parents underneath are still coloured, not a flat frame
     assert flat.std(axis=0).mean() > 0.05, "parent grains are not visible"
+
+
+def test_schmid_factor_matches_reference_and_is_fast():
+    """Schmid factor looped over every pixel x every slip system in Python,
+    building orix objects each time (>110s on a full map). The vectorised form
+    must give the SAME values."""
+    import time
+
+    import numpy as np
+    from orix.quaternion import Orientation
+    from orix.vector import Vector3d
+
+    from pagb_reconstruction.core.constants import SlipSystems
+
+    emap = _real_map()
+    t0 = time.perf_counter()
+    got = np.asarray(emap.compute_map_property("Schmid Factor"), dtype=np.float64)
+    elapsed = time.perf_counter() - t0
+    assert elapsed < 30.0, f"Schmid factor still slow: {elapsed:.1f}s"
+
+    finite = got[np.isfinite(got)]
+    assert finite.max() > 0.0, "Schmid factor is uniformly zero"
+    assert finite.max() <= 0.5 + 1e-9, "Schmid factor cannot exceed 0.5"
+
+    # Reference: the original per-pixel orix computation, on a handful of pixels.
+    xmap = emap.crystal_map
+    phases = xmap.phases_in_data
+    pid = next(p for p in phases.ids if p >= 0 and phases[p].point_group is not None)
+    mask = xmap.phase_id == pid
+    idx = np.where(mask)[0][:25]
+    from pagb_reconstruction.core.constants import slip_family
+
+    slip = SlipSystems()
+    fam = slip_family(getattr(phases[pid], "name", ""))
+    planes, dirs = (
+        (slip.fcc_planes, slip.fcc_dirs) if fam == "fcc"
+        else (slip.bcc_planes, slip.bcc_dirs)
+    )
+    loading = Vector3d([0, 0, 1])
+    flat_got = got.reshape(-1)
+    for i in idx:
+        ori = Orientation(xmap.rotations[i], symmetry=phases[pid].point_group)
+        best = 0.0
+        for sl in range(len(planes)):
+            n = (ori * Vector3d(planes[sl])).unit
+            d = (ori * Vector3d(dirs[sl])).unit
+            sf = abs(float(n.dot(loading).data[0])) * abs(float(d.dot(loading).data[0]))
+            best = max(best, sf)
+        assert flat_got[i] == pytest.approx(best, abs=1e-6), f"pixel {i} differs"

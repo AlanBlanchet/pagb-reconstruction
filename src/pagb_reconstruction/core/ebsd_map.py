@@ -11,6 +11,7 @@ from scipy.spatial import cKDTree
 
 from pagb_reconstruction.core.base import SpatialMap, map_property
 from pagb_reconstruction.core.constants import (
+    slip_family,
     BoundaryThresholds,
     CSLParams,
     SlipSystems,
@@ -581,47 +582,50 @@ class EBSDMap(SpatialMap):
         category="mechanical",
     )
     def schmid_factor_map(self) -> np.ndarray:
+        """Max Schmid factor per pixel for tensile loading along z.
+
+        Vectorised: rotating each slip plane/direction per pixel through orix
+        objects meant hundreds of thousands of tiny object constructions (>110 s
+        on a full map). Because the loading axis is z, only the THIRD ROW of each
+        pixel's rotation matrix is needed to get the z-component of a rotated
+        unit vector, so the whole map is three dot products.
+        """
         n_pixels = self.crystal_map.size
         schmid = np.zeros(n_pixels, dtype=np.float64)
         phases = self.crystal_map.phases_in_data
-        _slip = SlipSystems()
+        slip = SlipSystems()
 
         for pid in phases.ids:
             if pid < 0 or phases[pid].point_group is None:
                 continue
-            mask = self.crystal_map.phase_id == pid
             pg = str(phases[pid].point_group)
-            if "m-3m" in pg or "432" in pg:
-                family = phases[pid].point_group
-                sym_size = family.size
-                if sym_size <= 24:
-                    planes, dirs = _slip.bcc_planes, _slip.bcc_dirs
-                else:
-                    planes, dirs = _slip.fcc_planes, _slip.fcc_dirs
+            if not ("m-3m" in pg or "432" in pg):
+                continue
+            # Family comes from the phase identity, not the symmetry: bcc and fcc
+            # are both m-3m, so a size check always chose fcc.
+            if slip_family(getattr(phases[pid], "name", "")) == "fcc":
+                planes, dirs = slip.fcc_planes, slip.fcc_dirs
             else:
+                planes, dirs = slip.bcc_planes, slip.bcc_dirs
+
+            mask = self.crystal_map.phase_id == pid
+            indices = np.where(mask)[0]
+            if indices.size == 0:
                 continue
 
-            indices = np.where(mask)[0]
-            rotations = self.crystal_map[mask].rotations
-            oris = Orientation(rotations, symmetry=phases[pid].point_group)
-            loading = Vector3d([0, 0, 1])
+            q = self.quaternions[indices]
+            w, x, y, z = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
+            # third row of the rotation matrix: gives the z-component of R @ v
+            rz = np.stack(
+                [2.0 * (x * z - w * y), 2.0 * (y * z + w * x), 1.0 - 2.0 * (x * x + y * y)],
+                axis=1,
+            )
 
-            for k, idx in enumerate(indices):
-                ori = oris[k]
-                max_sf = 0.0
-                for sl in range(len(planes)):
-                    n_crystal = Vector3d(planes[sl])
-                    d_crystal = Vector3d(dirs[sl])
-                    n_sample = ori * n_crystal
-                    d_sample = ori * d_crystal
-                    n_norm = n_sample.unit
-                    d_norm = d_sample.unit
-                    cos_phi = abs(float(n_norm.dot(loading).data[0]))
-                    cos_lam = abs(float(d_norm.dot(loading).data[0]))
-                    sf = cos_phi * cos_lam
-                    if sf > max_sf:
-                        max_sf = sf
-                schmid[idx] = max_sf
+            unit_planes = planes / np.linalg.norm(planes, axis=1, keepdims=True)
+            unit_dirs = dirs / np.linalg.norm(dirs, axis=1, keepdims=True)
+            cos_phi = np.abs(rz @ unit_planes.T)
+            cos_lam = np.abs(rz @ unit_dirs.T)
+            schmid[indices] = (cos_phi * cos_lam).max(axis=1)
 
         return self._to_grid(schmid)
 
