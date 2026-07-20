@@ -402,6 +402,27 @@ class EBSDMap(SpatialMap):
         return rgb
 
     @map_property(
+        "Parent + Child Boundaries",
+        requires_result=True,
+        dtype="rgb",
+        category="reconstruction",
+    )
+    def parent_child_boundary_map(self) -> np.ndarray:
+        """Reconstructed parent grains with the CHILD boundaries laid over them.
+
+        The parent map alone cannot be judged against reality; overlaying the
+        as-measured (child) boundaries shows whether a parent grain actually
+        follows the measured microstructure or cuts across it.
+        """
+        parent_ids = self._to_grid(self._result.parent_grain_ids, fill=-1)
+        cmap = matplotlib.colormaps["tab20"]
+        rgb = np.full((*self.shape, 3), 0.18)
+        for i, gid in enumerate(np.unique(parent_ids[parent_ids >= 0])):
+            rgb[parent_ids == gid] = cmap(i % 20)[:3]
+        rgb[self.grain_boundary_map().astype(bool)] = 0.0
+        return rgb
+
+    @map_property(
         "GOS", dtype="scalar", unit="\u00b0", colormap="hot", category="deformation"
     )
     def gos_map(self) -> np.ndarray:

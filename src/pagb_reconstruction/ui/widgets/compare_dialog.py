@@ -29,6 +29,8 @@ from pagb_reconstruction.core.compare import (
     ComparisonRun,
     compare_configs,
     parent_map_rgb,
+    grid_configs,
+    rank_runs,
     sweep_configs,
 )
 from pagb_reconstruction.core.ebsd_map import EBSDMap
@@ -103,6 +105,36 @@ class CompareDialog(QDialog):
         sweep_row.addWidget(self._sweep_values, 1)
         layout.addLayout(sweep_row)
 
+        # A second parameter, so several can be traded against each other rather
+        # than one at a time — every combination of the two is run.
+        sweep_row2 = QHBoxLayout()
+        self._sweep_check2 = QCheckBox("and")
+        self._sweep_check2.setToolTip(
+            "Vary a second parameter too — every combination of the two is run"
+        )
+        sweep_row2.addWidget(self._sweep_check2)
+        self._sweep_field2 = QComboBox()
+        self._sweep_field2.addItems(_SWEEPABLE)
+        self._sweep_field2.setCurrentText("tolerance_deg")
+        sweep_row2.addWidget(self._sweep_field2)
+        sweep_row2.addWidget(QLabel("values:"))
+        self._sweep_values2 = QLineEdit("2, 3, 4")
+        sweep_row2.addWidget(self._sweep_values2, 1)
+        layout.addLayout(sweep_row2)
+
+        rank_row = QHBoxLayout()
+        rank_row.addWidget(QLabel("Rank by:"))
+        self._rank_combo = QComboBox()
+        self._rank_combo.addItems(["balanced", "fit", "reconstructed"])
+        self._rank_combo.setToolTip(
+            "balanced: misfit weighted by how much of the map was reconstructed\n"
+            "fit: lowest mean misfit\nreconstructed: largest reconstructed area"
+        )
+        self._rank_combo.currentTextChanged.connect(self._reorder_results)
+        rank_row.addWidget(self._rank_combo)
+        rank_row.addStretch()
+        layout.addLayout(rank_row)
+
         preview_row = QHBoxLayout()
         self._preview_check = QCheckBox("Fast preview (crop to 150 px)")
         self._preview_check.setChecked(True)
@@ -162,15 +194,23 @@ class CompareDialog(QDialog):
             for name, cb in self._preset_checks.items()
             if cb.isChecked()
         ]
-        if self._sweep_check.isChecked():
-            field = self._sweep_field.currentText()
+        grid: dict[str, list[float]] = {}
+        for check, field_combo, values_edit in (
+            (self._sweep_check, self._sweep_field, self._sweep_values),
+            (self._sweep_check2, self._sweep_field2, self._sweep_values2),
+        ):
+            if not check.isChecked():
+                continue
             try:
                 values = [
-                    float(v) for v in self._sweep_values.text().split(",") if v.strip()
+                    float(v) for v in values_edit.text().split(",") if v.strip()
                 ]
             except ValueError:
                 values = []
-            named += sweep_configs(self._base, field, values)
+            if values:
+                grid[field_combo.currentText()] = values
+        if grid:
+            named += grid_configs(self._base, grid)
         return named
 
     def _target_map(self, max_side: int = 150) -> EBSDMap:
@@ -214,8 +254,13 @@ class CompareDialog(QDialog):
         self._populate_results(runs)
 
     # ── results ──
+    def _reorder_results(self):
+        """Re-rank the runs already computed — no need to recompute."""
+        if getattr(self, "_runs", None):
+            self._populate_results(self._runs)
+
     def _populate_results(self, runs: list[ComparisonRun]):
-        self._runs = sorted(runs, key=lambda r: r.quality.mean_fit_deg)
+        self._runs = rank_runs(runs, metric=self._rank_combo.currentText())
         self._table.setRowCount(len(self._runs))
         accent = QColor(active_theme().accent)
         accent.setAlpha(40)
@@ -241,6 +286,10 @@ class CompareDialog(QDialog):
         self._apply_btn.setEnabled(bool(self._runs))
 
     def _thumbnail(self, run: ComparisonRun) -> QPixmap:
+        if run.result is None:
+            # A run can be listed for its metrics alone; a missing preview must
+            # not take the whole results table down with it.
+            return QPixmap()
         emap = (
             self._target_map()
             if self._preview_check.isChecked()

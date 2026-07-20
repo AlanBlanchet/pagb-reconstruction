@@ -68,6 +68,51 @@ def sweep_configs(
     return [(f"{field}={v:g}", base.model_copy(update={field: v})) for v in values]
 
 
+def grid_configs(
+    base: ReconstructionConfig, values_by_field: dict[str, list[float]]
+) -> list[tuple[str, ReconstructionConfig]]:
+    """Named configs for EVERY combination of the given fields.
+
+    ``sweep_configs`` varies one field; optimising a reconstruction usually means
+    trading several against each other (tolerance vs threshold), so this walks
+    the full grid. Fields not listed keep their value from ``base``.
+    """
+    import itertools
+
+    fields = sorted(values_by_field)
+    combos = itertools.product(*(values_by_field[f] for f in fields))
+    out: list[tuple[str, ReconstructionConfig]] = []
+    for combo in combos:
+        update = dict(zip(fields, combo))
+        name = ", ".join(f"{f}={v:g}" for f, v in update.items())
+        out.append((name, base.model_copy(update=update)))
+    return out
+
+
+def rank_runs(runs: list[ComparisonRun], metric: str = "balanced") -> list[ComparisonRun]:
+    """Best-first ordering of comparison runs.
+
+    ``fit``           lowest mean misfit angle first.
+    ``reconstructed`` highest reconstructed fraction first.
+    ``balanced``      both together — a run that reconstructs a sliver of the map
+                      can show a beautiful fit while being useless, so fit is
+                      weighted by coverage.
+    """
+    if metric == "fit":
+        return sorted(runs, key=lambda r: r.quality.mean_fit_deg)
+    if metric == "reconstructed":
+        return sorted(runs, key=lambda r: -r.quality.pct_reconstructed)
+    if metric != "balanced":
+        raise ValueError(f"unknown metric: {metric!r}")
+
+    def score(run: ComparisonRun) -> float:
+        coverage = max(run.quality.pct_reconstructed, 1e-6) / 100.0
+        # misfit per unit of map actually explained: lower is better
+        return run.quality.mean_fit_deg / coverage
+
+    return sorted(runs, key=score)
+
+
 def parent_map_rgb(emap: EBSDMap, result: ReconstructionResult) -> np.ndarray:
     """IPF-Z colouring of the reconstructed parent orientations as a (rows, cols,
     3) float RGB grid; unreconstructed pixels are neutral grey (same convention

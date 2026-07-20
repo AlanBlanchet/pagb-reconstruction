@@ -62,3 +62,44 @@ def test_preview_crop_limits_map_size(qtbot, synthetic_multi_parent):
     assert max(small.shape) <= 8
     full = dlg._target_map(max_side=10_000)
     assert full.shape == emap.shape
+
+
+def test_two_parameters_produce_the_full_grid(qtbot, synthetic_multi_parent):
+    """Issue #10: several parameter sets (tolerance, threshold...) at once."""
+    emap, _, _ = synthetic_multi_parent
+    dlg = _dialog(qtbot, emap)
+    for cb in dlg._preset_checks.values():
+        cb.setChecked(False)
+    dlg._sweep_check.setChecked(True)
+    dlg._sweep_field.setCurrentText("tolerance_deg")
+    dlg._sweep_values.setText("2, 3")
+    dlg._sweep_check2.setChecked(True)
+    dlg._sweep_field2.setCurrentText("merge_similar_deg")
+    dlg._sweep_values2.setText("5, 7")
+
+    named = dlg._named_configs()
+    assert len(named) == 4, "both parameters must be crossed, not run separately"
+    combos = {(c.tolerance_deg, c.merge_similar_deg) for _, c in named}
+    assert combos == {(2.0, 5.0), (2.0, 7.0), (3.0, 5.0), (3.0, 7.0)}
+
+
+def test_rank_selector_reorders_without_recomputing(qtbot, synthetic_multi_parent):
+    from pagb_reconstruction.core.compare import ComparisonRun
+    from pagb_reconstruction.core.fit_metrics import ReconstructionQuality
+
+    def mk(name, fit, recon):
+        q = ReconstructionQuality(
+            n_parents=5, pct_reconstructed=recon, mean_fit_deg=fit, median_fit_deg=fit,
+            fit_q25_deg=fit, fit_q75_deg=fit, fit_q95_deg=fit,
+            area_weighted_ecd_um=10.0, mean_ecd_um=10.0, median_ecd_um=10.0,
+        )
+        return ComparisonRun(name=name, config=ReconstructionConfig(), result=None, quality=q)
+
+    emap, _, _ = synthetic_multi_parent
+    dlg = _dialog(qtbot, emap)
+    runs = [mk("wide", 6.0, 95.0), mk("sliver", 1.0, 10.0)]
+    dlg._rank_combo.setCurrentText("fit")
+    dlg._populate_results(runs)
+    assert dlg._runs[0].name == "sliver"
+    dlg._rank_combo.setCurrentText("balanced")  # triggers re-rank
+    assert dlg._runs[0].name == "wide"

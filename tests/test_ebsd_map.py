@@ -126,3 +126,27 @@ def test_require_grains_is_idempotent():
     first = emap.require_grains()
     assert first, "grains should be detected on demand"
     assert emap.require_grains() is first, "detection must not re-run"
+
+
+def test_parent_with_child_boundaries_map():
+    """Issue #10: 'il faut grain parents + boundaries enfants superposés' —
+    parent grains coloured, with the CHILD (as-measured) boundaries drawn over
+    them, so the reconstruction can be judged against the measured structure."""
+    import numpy as np
+
+    emap = _real_map()
+    from pagb_reconstruction.core.reconstruction import (
+        ReconstructionConfig,
+        ReconstructionEngine,
+    )
+
+    emap.set_result(ReconstructionEngine(emap, ReconstructionConfig()).run())
+    rgb = emap.compute_map_property("Parent + Child Boundaries")
+
+    assert rgb.shape == (*emap.shape, 3)
+    flat = rgb.reshape(-1, 3)
+    # child boundaries are drawn dark over the parent colours
+    dark = (flat.max(axis=1) < 0.05).mean()
+    assert 0.01 < dark < 0.60, f"child boundary coverage looks wrong ({dark:.3f})"
+    # and the parents underneath are still coloured, not a flat frame
+    assert flat.std(axis=0).mean() > 0.05, "parent grains are not visible"

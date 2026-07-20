@@ -45,6 +45,7 @@ from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
 from pagb_reconstruction.ui.widgets.or_panel import ORPanel
 from pagb_reconstruction.ui.widgets.param_panel import ParamPanel
 from pagb_reconstruction.ui.widgets.phase_panel import PhasePanel
+from pagb_reconstruction.ui.widgets.parent_review import ParentReviewPanel
 from pagb_reconstruction.ui.widgets.pole_figure import PoleFigureWidget
 from pagb_reconstruction.ui.widgets.reconstruction_panel import ReconstructionPanel
 from pagb_reconstruction.ui.widgets.stats_dashboard import StatsDashboard
@@ -100,6 +101,7 @@ class MainWindow(QMainWindow):
         self._reconstruction_panel = ReconstructionPanel()
         self._stats_dashboard = StatsDashboard()
         self._pole_figure = PoleFigureWidget()
+        self._parent_review = ParentReviewPanel()
 
         self._grain_info = QWidget()
         self._grain_form = QFormLayout(self._grain_info)
@@ -192,13 +194,20 @@ class MainWindow(QMainWindow):
             Qt.DockWidgetArea.BottomDockWidgetArea,
             bottom_min,
         )
+        dock_parents = self._add_dock(
+            "Parents",
+            self._parent_review,
+            Qt.DockWidgetArea.BottomDockWidgetArea,
+            bottom_min,
+        )
 
         self.tabifyDockWidget(dock_recon, dock_stats)
         self.tabifyDockWidget(dock_stats, dock_pole)
-        self.tabifyDockWidget(dock_pole, dock_log)
+        self.tabifyDockWidget(dock_pole, dock_parents)
+        self.tabifyDockWidget(dock_parents, dock_log)
         dock_recon.raise_()
 
-        self._bottom_docks = [dock_recon, dock_stats, dock_pole, dock_log]
+        self._bottom_docks = [dock_recon, dock_stats, dock_pole, dock_parents, dock_log]
         self._right_dock = dock_params
 
         self._docks = {
@@ -209,6 +218,7 @@ class MainWindow(QMainWindow):
             "Reconstruction": dock_recon,
             "Statistics": dock_stats,
             "Poles": dock_pole,
+            "Parents": dock_parents,
             "Log": dock_log,
         }
 
@@ -477,6 +487,9 @@ class MainWindow(QMainWindow):
         self._map_viewer.pixel_clicked.connect(self._on_pixel_click)
         self._map_viewer.roi_changed.connect(self._on_roi_changed)
 
+        self._parent_review.parent_selected.connect(self._map_viewer.highlight_parent)
+        self._parent_review.reassign_requested.connect(self._on_reassign_parent)
+
         QTimer.singleShot(3000, self._check_updates)
         self._update_bar.open_url.connect(
             lambda url: QDesktopServices.openUrl(QUrl(url))
@@ -490,6 +503,24 @@ class MainWindow(QMainWindow):
             )
         )
         self._update_checker.start()
+
+    def _on_reassign_parent(self, source_id: int, target_id: int):
+        """Reattach one parent to another and refresh everything from the result."""
+        if self._result is None:
+            return
+        from pagb_reconstruction.core.manual_edit import reassign_parent
+
+        try:
+            updated = reassign_parent(self._result, source_id, target_id)
+        except ValueError as e:
+            self._status_bar.showMessage(f"Cannot reattach: {e}")
+            self._log(f"Reattach parent {source_id} -> {target_id} failed: {e}")
+            return
+        self._result = updated
+        self._map_viewer.set_reconstruction_result(updated)
+        self._parent_review.set_result(updated)
+        self._log(f"Reattached parent {source_id} to {target_id}")
+        self._status_bar.showMessage(f"Parent {source_id} reattached to {target_id}")
 
     def _log(self, msg: str):
         ts = datetime.now().strftime("%H:%M:%S")
@@ -686,6 +717,7 @@ class MainWindow(QMainWindow):
         elapsed = (datetime.now() - self._recon_start).total_seconds()
         self._task_manager.complete("reconstruction", "done")
         self._map_viewer.set_reconstruction_result(result)
+        self._parent_review.set_result(result)
         self._stats_dashboard.update_stats(result, self._ebsd_map, elapsed=elapsed)
         if result.optimized_or is not None:
             self._or_panel.set_optimized_or(result.optimized_or)
