@@ -12,4 +12,4 @@ def test_gpu_check_prints_backend_without_gui(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "compute_backend" in out
     assert "compute_device" in out
-    assert "cuda_available" in out
+    assert "driver_sees_gpu" in out

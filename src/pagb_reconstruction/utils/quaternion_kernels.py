@@ -22,6 +22,7 @@ reconstruction compares against.
 import logging
 import math
 import os
+import sys
 from functools import lru_cache
 
 import numpy as np
@@ -156,9 +157,27 @@ def _edge_body(cand_i, cand_j, sym, out):
 # --------------------------------------------------------------------------
 
 
+def _use_bundled_cuda() -> None:
+    """Point numba at the CUDA compiler shipped inside the frozen bundle.
+
+    A user with a graphics card has the display driver but usually no CUDA
+    toolkit, so NVVM (needed to COMPILE kernels) would be missing. The bundle
+    carries it; an explicit CUDA_HOME from the environment still wins.
+    """
+    if os.environ.get("CUDA_HOME") or os.environ.get("CUDA_PATH"):
+        return
+    base = getattr(sys, "_MEIPASS", None)
+    if not base:
+        return
+    bundled = os.path.join(base, "cuda")
+    if os.path.isdir(bundled):
+        os.environ["CUDA_HOME"] = bundled
+
+
 def cuda_available() -> bool:
     """True when numba can compile and launch CUDA kernels on this machine."""
     try:
+        _use_bundled_cuda()
         from numba import cuda
 
         return bool(cuda.is_available())

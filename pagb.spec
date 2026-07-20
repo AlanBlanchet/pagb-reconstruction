@@ -1,4 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+
 from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
 
 datas = copy_metadata('pagb-reconstruction')
@@ -19,6 +21,47 @@ for pkg in ["orix", "diffpy", "qtawesome", "qtsass"]:
 
 # The SCSS stylesheet is read at runtime via importlib.resources.
 datas += [("src/pagb_reconstruction/ui/theme/app.scss", "pagb_reconstruction/ui/theme")]
+
+# GPU: stage the CUDA compiler (NVVM + libdevice) and runtime into the bundle so
+# numba can compile our kernels (utils/quaternion_kernels.py) on a machine that
+# has only a display driver. ~61 MB — the CUDA *math* libraries a tensor library
+# needs (cudnn/cublas/...) are not required, we generate our own kernels.
+def _stage_cuda_payload():
+    import glob
+    import importlib.util
+    import shutil
+
+    found = importlib.util.find_spec("nvidia")
+    if found is None or not found.submodule_search_locations:
+        print("pagb: no CUDA payload staged (nvidia wheels absent) — GPU will fall back to CPU")
+        return []
+    root = list(found.submodule_search_locations)[0]
+    stage_root = os.path.join("build", "cuda_payload")
+    staged = []
+
+    def stage(src, rel):
+        dst = os.path.join(stage_root, rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
+        staged.append((dst, os.path.join("cuda", os.path.dirname(rel))))
+
+    # numba's library finder requires a VERSIONED name on Linux (libnvvm.so.N).
+    for f in glob.glob(os.path.join(root, "cuda_nvcc/nvvm/lib64/libnvvm.so*")):
+        stage(f, "nvvm/lib64/libnvvm.so.4")
+    for f in glob.glob(os.path.join(root, "cuda_nvcc/nvvm/bin/nvvm*.dll")):
+        stage(f, os.path.join("nvvm/bin", os.path.basename(f)))
+    for f in glob.glob(os.path.join(root, "cuda_nvcc/nvvm/libdevice/*.bc")):
+        stage(f, os.path.join("nvvm/libdevice", os.path.basename(f)))
+    for f in glob.glob(os.path.join(root, "cuda_runtime/lib/libcudart.so*")):
+        stage(f, os.path.join("lib64", os.path.basename(f)))
+    for f in glob.glob(os.path.join(root, "cuda_runtime/bin/cudart*.dll")):
+        stage(f, os.path.join("bin", os.path.basename(f)))
+    print(f"pagb: staged {len(staged)} CUDA payload files")
+    return staged
+
+
+datas += _stage_cuda_payload()
+
 
 for pkg in ["numba", "scipy", "sklearn", "h5py", "pydantic", "matplotlib", "pyqtgraph"]:
     hidden += collect_submodules(pkg)

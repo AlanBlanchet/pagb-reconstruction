@@ -12,19 +12,22 @@ def main():
     # Support diagnostic: which compute backend + device is live, without booting
     # Qt. Lets a user confirm whether their GPU is actually being used.
     if "--gpu-check" in sys.argv:
+        from pagb_reconstruction.utils import quaternion_kernels
         from pagb_reconstruction.utils.compute import Quaternions
 
         print(f"compute_backend: {Quaternions.__name__}")
-        print(f"compute_device: {getattr(Quaternions, 'device', 'cpu')}")
         try:
             from numba import cuda
 
-            print(f"cuda_available: {cuda.is_available()}")
+            print(f"driver_sees_gpu: {cuda.is_available()}")
             if cuda.is_available():
-                gpu = cuda.get_current_device()
-                print(f"gpu: {gpu.name.decode() if isinstance(gpu.name, bytes) else gpu.name}")
+                name = cuda.get_current_device().name
+                print(f"gpu: {name.decode() if isinstance(name, bytes) else name}")
         except Exception as e:  # noqa: BLE001 — diagnostic must never crash
-            print(f"cuda_available: False ({type(e).__name__}: {e})")
+            print(f"driver_sees_gpu: False ({type(e).__name__}: {e})")
+        # The device that MATTERS: seeing a driver is not enough, the kernels must
+        # actually compile (which needs NVVM). This compiles and launches them.
+        print(f"compute_device: {quaternion_kernels.kernels().device}")
         return
 
     # CI smoke for the frozen build: boot Qt + theme + main window offscreen,
