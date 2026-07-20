@@ -1,3 +1,4 @@
+import logging
 import platform
 import sys
 from datetime import datetime
@@ -32,8 +33,10 @@ from PySide6.QtWidgets import (
 from pagb_reconstruction import __version__
 from pagb_reconstruction.core.ebsd_map import EBSDMap
 from pagb_reconstruction.core.fit_metrics import reconstruction_quality
+from pagb_reconstruction.utils.compute import Quaternions
 from pagb_reconstruction.core.reconstruction import ReconstructionConfig
 from pagb_reconstruction.core.updater import UpdateChecker
+from pagb_reconstruction.utils import logging_setup
 from pagb_reconstruction.io.base import load_ebsd
 from pagb_reconstruction.io.reconstruction_export import ReconstructionExporter
 from pagb_reconstruction.ui.theme import THEMES, icon, set_theme
@@ -306,6 +309,10 @@ class MainWindow(QMainWindow):
         bug_action.setIcon(icon("bug"))
         bug_action.triggered.connect(self._report_bug)
         help_menu.addAction(bug_action)
+
+        log_action = QAction("Open &Log File", self)
+        log_action.triggered.connect(self._open_log_file)
+        help_menu.addAction(log_action)
         help_menu.addSeparator()
         about_action = QAction("&About", self)
         about_action.setIcon(icon("about"))
@@ -487,6 +494,8 @@ class MainWindow(QMainWindow):
     def _log(self, msg: str):
         ts = datetime.now().strftime("%H:%M:%S")
         self._log_text.appendPlainText(f"[{ts}] {msg}")
+        # Mirror into the session log file so a bug report carries it.
+        logging.getLogger("pagb_reconstruction.ui").info("%s", msg)
 
     def _on_or_changed(self, or_name: str):
         self._status_bar.showMessage(f"OR changed to: {or_name}")
@@ -893,12 +902,23 @@ class MainWindow(QMainWindow):
             f"- Qt: {qt_version}\n"
             f"- orix: {orix.__version__}\n"
             f"- numpy: {np.__version__}\n"
+            f"- Compute: {Quaternions.__name__} ({getattr(Quaternions, 'device', '?')})\n"
+            "\n**Recent log**\n"
+            f"<!-- full log: {logging_setup.log_file_path()} -->\n"
+            "```\n" + logging_setup.tail(60) + "\n```\n"
         )
         url = (
             "https://github.com/AlanBlanchet/pagb-reconstruction/issues/new"
             f"?title=&body={quote(body)}"
         )
         QDesktopServices.openUrl(QUrl(url))
+
+    def _open_log_file(self):
+        """Reveal the session log so the user can attach it to a report."""
+        path = logging_setup.log_file_path()
+        logging_setup.flush()
+        target = path if path.exists() else path.parent
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
 
     def _show_about(self):
         QMessageBox.about(

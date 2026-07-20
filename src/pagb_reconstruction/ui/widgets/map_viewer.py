@@ -1,4 +1,5 @@
 import logging
+import warnings
 
 import numpy as np
 import pyqtgraph as pg
@@ -58,6 +59,9 @@ class MapViewer(QWidget):
         self._current_image: np.ndarray | None = None
         self._hist_eq_enabled = False
         self._active_worker: ComputeWorker | None = None
+        # Workers superseded by a newer request. A running QThread must stay
+        # referenced until it really stops, or Qt aborts the process.
+        self._retired_workers: set[ComputeWorker] = set()
         self._compute_generation = 0
         self._line_mode = False
         self._line_start: tuple[int, int] | None = None
@@ -323,10 +327,7 @@ class MapViewer(QWidget):
         self._compute_generation += 1
         gen = self._compute_generation
 
-        if self._active_worker is not None and self._active_worker.isRunning():
-            self._active_worker.finished.disconnect()
-            self._active_worker.error.disconnect()
-            self._active_worker = None
+        self._retire_active_worker()
 
         meta = self._find_meta(mode)
 
@@ -342,12 +343,35 @@ class MapViewer(QWidget):
         self._display_combo.setEnabled(False)
 
         worker = ComputeWorker(self._compute_image, mode)
-        worker.finished.connect(
+        worker.result.connect(
             lambda img, g=gen, m=meta: self._on_compute_done(img, m, g)
         )
         worker.error.connect(lambda msg, g=gen: self._on_compute_error(msg, g))
         self._active_worker = worker
         worker.start()
+
+    def _retire_active_worker(self):
+        """Detach the in-flight worker but keep it alive until it stops.
+
+        Its result is ignored via the generation counter; dropping the reference
+        while the thread runs would destroy a running QThread and abort the app.
+        """
+        worker = self._active_worker
+        self._active_worker = None
+        if worker is None:
+            return
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            for signal in (worker.result, worker.error):
+                try:
+                    signal.disconnect()
+                except (RuntimeError, TypeError):
+                    pass
+        if worker.isRunning():
+            self._retired_workers.add(worker)
+            worker.finished.connect(
+                lambda w=worker: self._retired_workers.discard(w)
+            )
 
     def _on_compute_done(self, image, meta, generation):
         if generation != self._compute_generation:
@@ -377,9 +401,16 @@ class MapViewer(QWidget):
             self._ipf_key_plot.setVisible(False)
             if meta and meta.dtype == "discrete":
                 # Distinct colour per id — a continuous ramp made Packet/Block/
-                # Variant nearly one colour. (Per-id swatch legend still TODO.)
-                self._image_item.setImage(display, autoLevels=False, levels=(0, 255))
-                self._image_item.setLookupTable(self._categorical_lut())
+                # Variant nearly one colour. Ids CYCLE through the palette rather
+                # than clamping: with thousands of ids (parent grains) everything
+                # past the last entry used to render in a single colour.
+                lut = self._categorical_lut()
+                self._image_item.setImage(
+                    self._discrete_indices(display, len(lut)),
+                    autoLevels=False,
+                    levels=(0, len(lut) - 1),
+                )
+                self._image_item.setLookupTable(lut)
                 self._colorbar_plot.setVisible(False)
             else:
                 cmap_name = (
@@ -395,11 +426,29 @@ class MapViewer(QWidget):
         self._plot.getViewBox().autoRange(padding=0)
 
     @staticmethod
+    def _discrete_indices(image, n_colors: int) -> np.ndarray:
+        """Map ids onto LUT slots 1..n-1, reserving slot 0 for "no id".
+
+        Modulo, never clamp: a map with more ids than LUT entries would otherwise
+        draw every id past the last entry in one flat colour.
+        """
+        ids = np.asarray(image)
+        valid = np.isfinite(ids) & (ids >= 0)
+        idx = np.zeros(ids.shape, dtype=np.float32)
+        idx[valid] = (ids[valid].astype(np.int64) % (n_colors - 1)) + 1
+        return idx
+
+    @staticmethod
     def _categorical_lut() -> np.ndarray:
+        """Slot 0 = neutral "no id" grey; 1..255 cycle the tab20 palette."""
         base = pg.colormap.get("tab20", source="matplotlib").getLookupTable(
             nPts=20, alpha=False
         )
-        return np.array([base[i % len(base)] for i in range(256)], dtype=np.ubyte)
+        lut = np.empty((256, 3), dtype=np.ubyte)
+        lut[0] = (46, 46, 46)
+        for i in range(1, 256):
+            lut[i] = base[(i - 1) % len(base)]
+        return lut
 
     def _update_ipf_key(self, meta: _MapPropertyMeta | None):
         name = meta.name if meta else ""
@@ -428,6 +477,10 @@ class MapViewer(QWidget):
         self._overlay_opacity.setOpacity(1.0)
         self._display_combo.setEnabled(True)
         self._active_worker = None
+        # Drop the previous map: leaving it up would present another map's data
+        # as if it were the one the user selected.
+        self._current_image = None
+        self._image_item.clear()
         logger.error("Map computation failed: %s", msg)
 
     @staticmethod

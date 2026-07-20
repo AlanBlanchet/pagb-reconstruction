@@ -95,3 +95,34 @@ def test_parent_ipf_greys_unreconstructed():
     # every pixel unreconstructed → the whole frame is neutral grey (~0.18),
     # never identity-coloured or black.
     assert np.allclose(rgb, 0.18, atol=1e-6), "unreconstructed pixels must be grey"
+
+
+def _real_map():
+    from pagb_reconstruction.io.base import load_ebsd
+
+    return load_ebsd("data/martensite_roomtemp.ctf")
+
+
+def test_grain_based_maps_detect_grains_on_demand():
+    """Issue #10 stabilization: GOS/GAM/GROD are grain-based, but `grains` is None
+    until detection runs. Each guarded differently — GOS and GROD silently
+    returned an all-zero (blank) map and GAM crashed with
+    "'NoneType' object is not iterable". They must all just work.
+    """
+    import numpy as np
+
+    emap = _real_map()
+    assert emap.grains is None, "precondition: no detection has run yet"
+
+    for name in ("GOS", "GAM", "GROD"):
+        data = np.asarray(emap.compute_map_property(name), dtype=np.float64)
+        finite = data[np.isfinite(data)]
+        assert finite.size, f"{name} produced no finite values"
+        assert finite.max() > 0.0, f"{name} is uniformly zero — a blank map"
+
+
+def test_require_grains_is_idempotent():
+    emap = _real_map()
+    first = emap.require_grains()
+    assert first, "grains should be detected on demand"
+    assert emap.require_grains() is first, "detection must not re-run"

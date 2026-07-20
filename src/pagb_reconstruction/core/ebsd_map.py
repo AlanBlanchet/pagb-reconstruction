@@ -19,6 +19,7 @@ from pagb_reconstruction.core.grain import Grain, detect_grains
 from pagb_reconstruction.core.phase import PhaseConfig
 from pagb_reconstruction.utils.array_ops import boundaries_from_2d
 from pagb_reconstruction.utils.colormap import DEFAULT_IPF_DIRECTION, ipf_colors
+from pagb_reconstruction.utils.compute import Quaternions
 from pagb_reconstruction.utils.math_ops import MisorientationOps
 
 
@@ -246,9 +247,10 @@ class EBSDMap(SpatialMap):
     @map_property("Grain ID", dtype="discrete", category="microstructure")
     def grain_id_map(self) -> np.ndarray:
         gmap = np.zeros(self.topology.n_pixels, dtype=np.float32)
-        if not self.grains:
+        grains = self.require_grains()
+        if not grains:
             return self._to_grid(gmap)
-        for g in self.grains:
+        for g in grains:
             gmap[g.pixel_indices] = g.id
         return self._to_grid(gmap)
 
@@ -404,19 +406,16 @@ class EBSDMap(SpatialMap):
     )
     def gos_map(self) -> np.ndarray:
         gos = np.zeros(self.topology.n_pixels, dtype=np.float64)
-        if not self.grains:
+        grains = self.require_grains()
+        if not grains:
             return self._to_grid(gos)
-        sym_quats = self._primary_symmetry_quats()
-        for g in self.grains:
-            angles = np.array(
-                [
-                    MisorientationOps.pair(
-                        self.quaternions[px], g.mean_quaternion, sym_quats
-                    )
-                    for px in g.pixel_indices
-                ]
-            )
-            gos[g.pixel_indices] = angles.mean()
+        _, deviation = self._grain_mean_deviation(grains)
+        start = 0
+        for g in grains:
+            n = len(g.pixel_indices)
+            if n:
+                gos[g.pixel_indices] = deviation[start : start + n].mean()
+            start += n
         return self._to_grid(gos)
 
     @map_property(
@@ -430,7 +429,7 @@ class EBSDMap(SpatialMap):
         """Grain Average Misorientation — per-grain mean of pixel KAM values."""
         kam = self._pixel_kam()
         gam = np.zeros_like(kam)
-        for g in self.grains:
+        for g in self.require_grains():
             if len(g.pixel_indices) == 0:
                 continue
             gam[g.pixel_indices] = float(kam[g.pixel_indices].mean())
@@ -489,6 +488,34 @@ class EBSDMap(SpatialMap):
         np.maximum.at(mmap, topo.pairs[:, 1], angles)
         return self._to_grid(mmap)
 
+    def _grain_mean_deviation(self, grains: list[Grain]) -> tuple[np.ndarray, np.ndarray]:
+        """Disorientation of every grain pixel from its own grain's mean.
+
+        ONE batched call through the compute backend (GPU when available). Doing
+        this per pixel in Python took minutes on a full map.
+        """
+        pixels = np.concatenate([g.pixel_indices for g in grains])
+        means = np.repeat(
+            np.array([g.mean_quaternion for g in grains], dtype=np.float64),
+            [len(g.pixel_indices) for g in grains],
+            axis=0,
+        )
+        angles = Quaternions.disorientation_deg(
+            self.quaternions[pixels], means, self._primary_symmetry_quats()
+        )
+        return pixels, angles
+
+    def require_grains(self) -> list[Grain]:
+        """Grains, detecting them on demand.
+
+        Grain-based maps (Grain ID, GOS, GAM, GROD) are meaningless without them.
+        Each used to guard separately, inconsistently: two returned an all-zero
+        map that looked like real data, and one crashed iterating ``None``.
+        """
+        if not self.grains:
+            self.run_grain_detection()
+        return self.grains or []
+
     def run_grain_detection(self, threshold_deg: float = 5.0, min_size: int = 5):
         sym_quats = self._primary_symmetry_quats()
         self.grains = detect_grains(
@@ -517,15 +544,12 @@ class EBSDMap(SpatialMap):
         "GROD", dtype="scalar", unit="\u00b0", colormap="hot", category="deformation"
     )
     def grod_map(self) -> np.ndarray:
-        if not self.grains:
+        grains = self.require_grains()
+        if not grains:
             return np.zeros(self.shape, dtype=np.float64)
-        sym_quats = self._primary_symmetry_quats()
         grod = np.zeros(self.topology.n_pixels, dtype=np.float64)
-        for g in self.grains:
-            for px in g.pixel_indices:
-                grod[px] = MisorientationOps.pair(
-                    self.quaternions[px], g.mean_quaternion, sym_quats
-                )
+        pixels, deviation = self._grain_mean_deviation(grains)
+        grod[pixels] = deviation
         return self._to_grid(grod)
 
     @map_property(

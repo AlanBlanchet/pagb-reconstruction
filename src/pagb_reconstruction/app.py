@@ -9,6 +9,11 @@ from pagb_reconstruction.ui.theme import apply_theme
 
 
 def main():
+    # One log file for the whole session, before anything that could fail runs.
+    from pagb_reconstruction.utils import logging_setup
+
+    logging_setup.setup_logging()
+
     # Support diagnostic: which compute backend + device is live, without booting
     # Qt. Lets a user confirm whether their GPU is actually being used.
     if "--gpu-check" in sys.argv:

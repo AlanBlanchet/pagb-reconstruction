@@ -60,3 +60,76 @@ def test_all_image_items_row_major(qtbot):
     for name in ("_image_item", "_boundary_item", "_highlight_item",
                  "_colorbar_item", "_ipf_key_item", "_split_image_item"):
         assert getattr(w, name).axisOrder == "row-major", f"{name} is not row-major"
+
+
+def test_switching_mode_keeps_running_worker_alive(qtbot):
+    """A superseded compute must stay referenced until its thread stops.
+
+    Dropping a running QThread makes Qt abort the process ("QThread: Destroyed
+    while thread is still running") — a crash reachable by changing display mode
+    while one is still computing.
+    """
+    import time
+
+    from pagb_reconstruction.ui.widgets.compute_worker import ComputeWorker
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    slow = ComputeWorker(lambda: time.sleep(0.4))
+    w._active_worker = slow
+    slow.start()
+    qtbot.waitUntil(slow.isRunning, timeout=2000)
+
+    w._retire_active_worker()
+    assert w._active_worker is None
+    assert slow in w._retired_workers, "running worker was dropped — Qt would abort"
+
+    qtbot.waitUntil(lambda: not slow.isRunning(), timeout=5000)
+    qtbot.waitUntil(lambda: slow not in w._retired_workers, timeout=5000)
+
+
+def test_discrete_ids_cycle_instead_of_clamping(qtbot):
+    """Issue #10: 'IPF parents ne marche pas à l'affichage'.
+
+    Discrete maps were drawn with levels=(0, 255) against a 256-entry LUT, so on
+    a map with thousands of ids (4155 parent grains) every id past 255 clamped to
+    ONE colour. Ids are assigned in raster order, so only the top rows stayed
+    coloured and the rest went flat — a smooth ramp under a grey colormap.
+    """
+    import numpy as np
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    idx = MapViewer._discrete_indices(np.array([[300.0, 700.0, 4000.0]]), 256)
+    assert len(set(idx.ravel().tolist())) == 3, "high ids collapsed to one colour"
+
+    # negative / non-finite means "no id" and must take the reserved slot 0
+    special = MapViewer._discrete_indices(np.array([[-1.0, np.nan]]), 256)
+    assert special.ravel().tolist() == [0.0, 0.0]
+
+
+def test_categorical_lut_reserves_slot_zero(qtbot):
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    lut = MapViewer._categorical_lut()
+    assert lut.shape == (256, 3)
+    # slot 0 is the neutral "no id" colour, distinct from the cycling palette
+    assert not (lut[0] == lut[1]).all()
+
+
+def test_failed_compute_clears_stale_image(qtbot):
+    """A failed map computation must not leave the PREVIOUS map on screen.
+
+    Otherwise the user selects e.g. GOS, the compute fails, and they keep looking
+    at KAM believing it is GOS — wrong data presented as right.
+    """
+    import numpy as np
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    w._current_image = np.ones((4, 4))
+    w._on_compute_error("boom", w._compute_generation)
+    assert w._current_image is None, "stale image survived a failed computation"
