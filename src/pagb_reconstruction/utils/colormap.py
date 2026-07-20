@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -8,7 +12,10 @@ from orix.plot import IPFColorKeyTSL
 from orix.quaternion import Orientation, Symmetry
 from orix.vector import Vector3d
 
-from pagb_reconstruction.core.phase import PhaseConfig
+if TYPE_CHECKING:
+    # Only a type annotation below — importing at runtime would create a cycle
+    # (core.phase → core → utils.colormap), so colormap stays core-free.
+    from pagb_reconstruction.core.phase import PhaseConfig
 
 DEFAULT_IPF_DIRECTION = Vector3d.zvector()
 

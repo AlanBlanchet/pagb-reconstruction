@@ -23,6 +23,13 @@ from pagb_reconstruction.utils.math_ops import MisorientationOps
 
 from pagb_reconstruction.core.base import _MapPropertyMeta
 from pagb_reconstruction.core.ebsd_map import EBSDMap
+
+# Every array we draw is numpy (row, col); pyqtgraph's default is col-major, which
+# TRANSPOSES it — a landscape map rendered as a narrow portrait strip, and the
+# hover/click hit-testing (which indexes [row][col]) reading the wrong pixel.
+# Set process-wide here, before any ImageItem is constructed, so the map, overlays,
+# colour bar and IPF key are all consistent.
+pg.setConfigOption("imageAxisOrder", "row-major")
 from pagb_reconstruction.core.reconstruction import ReconstructionResult
 from pagb_reconstruction.ui.theme import active_theme
 from pagb_reconstruction.ui.widgets.compute_worker import ComputeWorker
@@ -128,7 +135,7 @@ class MapViewer(QWidget):
 
         # IPF colour-key triangle, shown beside the map for orientation maps
         # (an IPF map is uninterpretable without its key).
-        self._ipf_key_item = pg.ImageItem(axisOrder="row-major")
+        self._ipf_key_item = pg.ImageItem()
         self._ipf_key_plot = self._graphics_view.addPlot()
         self._ipf_key_plot.addItem(self._ipf_key_item)
         self._ipf_key_plot.hideAxis("left")
