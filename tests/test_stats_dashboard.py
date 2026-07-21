@@ -75,3 +75,29 @@ def test_measurement_runs_on_sparse_map(qtbot):
     text = dash._metrics_label.text()
     assert "Mean intercept" in text
     assert "ASTM" in text
+
+
+def test_charts_lay_out_along_the_dock_it_lives_in(qtbot):
+    """The charts must fit the bottom dock's shape: wide and short.
+
+    A 2x2 grid of 190px-min charts demands >=380px of height, inside a bottom
+    dock that defaults to 230px — so the panel was permanently scroll-bound and
+    could never show its own content. The dock is full-window WIDTH, so laying
+    the charts in one row spends the dimension that is actually available.
+    """
+    from pagb_reconstruction.ui.widgets.stats_dashboard import StatsDashboard
+
+    d = StatsDashboard()
+    qtbot.addWidget(d)
+
+    rows = {d._chart_grid.getItemPosition(i)[0] for i in range(d._chart_grid.count())}
+    assert rows == {0}, f"charts must share one row to fit a short dock, got rows {rows}"
+
+    charts = [
+        d._chart_grain_size, d._chart_misori, d._chart_variants, d._chart_fit,
+    ]
+    tallest = max(c._widget.minimumHeight() for c in charts)
+    assert tallest <= 230, (
+        f"a chart floor of {tallest}px exceeds the 230px default bottom-dock "
+        "height, so the row cannot render without scrolling"
+    )

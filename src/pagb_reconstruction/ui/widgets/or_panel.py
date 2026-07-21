@@ -1,6 +1,5 @@
 import numpy as np
-import pyqtgraph as pg
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -14,7 +13,6 @@ from PySide6.QtWidgets import (
 )
 
 from pagb_reconstruction.core.orientation_relationship import OrientationRelationship
-from pagb_reconstruction.ui.theme import active_theme
 
 
 class ORPanel(QWidget):
@@ -72,27 +70,15 @@ class ORPanel(QWidget):
         info_layout.addRow("Refined OR:", self._refined_label)
         layout.addWidget(self._info_box)
 
-        self._histogram_group = QGroupBox("Misorientation Distribution")
-        hist_layout = QVBoxLayout(self._histogram_group)
-        self._hist_plot = pg.PlotWidget()
-        self._hist_plot.setBackground(active_theme().surface_dim)
-        self._hist_plot.setLabel("bottom", "Angle", units="\u00b0")
-        self._hist_plot.setLabel("left", "Count")
-        self._hist_plot.showGrid(x=True, y=True, alpha=0.2)
-        self._hist_plot.setMinimumHeight(220)
-        self._hist_plot.addLegend(offset=(-8, 8), labelTextColor=active_theme().fg)
-        hist_layout.addWidget(self._hist_plot)
-        # The histogram absorbs the panel's spare height. A trailing addStretch()
-        # here would claim it instead and letterbox the plot.
-        layout.addWidget(self._histogram_group, 1)
+        # The misorientation histogram used to sit here. It lost every fight
+        # for height against the two group boxes above it in this shared scroll
+        # area, so it now owns its own dock — see widgets/misorientation_panel.py.
+        layout.addStretch()
 
-        self._peak_lines: list[pg.InfiniteLine] = []
-        self._ebsd_map_ref = None
         self._update_detail()
 
     def _on_or_changed(self, name: str):
         self._update_detail()
-        self._update_histogram()
         self.or_changed.emit(name)
 
     def _update_detail(self):
@@ -140,48 +126,6 @@ class ORPanel(QWidget):
 
     def get_optimize(self) -> bool:
         return self._optimize_cb.isChecked()
-
-    def set_ebsd_map(self, ebsd_map):
-        self._ebsd_map_ref = ebsd_map
-        self._update_histogram()
-
-    def _update_histogram(self):
-        self._hist_plot.clear()
-        self._peak_lines.clear()
-        legend = self._hist_plot.plotItem.legend
-        if legend is not None:
-            legend.clear()
-
-        p = active_theme()
-        if self._ebsd_map_ref is not None:
-            _, angles = self._ebsd_map_ref._pair_angles()
-            hist, bin_edges = np.histogram(angles, bins=90, range=(0, 90))
-            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-            self._hist_plot.plot(
-                bin_centers,
-                hist,
-                stepMode=False,
-                pen=pg.mkPen(p.accent, width=1.5),
-                fillLevel=0,
-                fillBrush=p.rgb("accent") + (50,),
-                name="Measured misorientations",
-            )
-
-        name = self._or_combo.currentText()
-        if name:
-            or_obj = OrientationRelationship.from_preset(name)
-            peak_angles = or_obj.theoretical_misorientations()
-            unique_peaks = np.unique(np.round(peak_angles, 1))
-            peak_pen = pg.mkPen(p.warning, width=1.5, style=Qt.PenStyle.DashLine)
-            for angle in unique_peaks:
-                line = pg.InfiniteLine(pos=angle, angle=90, pen=peak_pen)
-                self._hist_plot.addItem(line)
-                self._peak_lines.append(line)
-            if legend is not None and self._peak_lines:
-                # One entry for the whole dashed family, not one per peak.
-                legend.addItem(
-                    pg.PlotDataItem(pen=peak_pen), f"Theoretical {name} peaks"
-                )
 
     def set_optimized_or(self, or_instance) -> None:
         if or_instance is None:

@@ -218,3 +218,50 @@ def test_categorical_legend_for_few_categories(qtbot):
     # thousands of parent grains: a legend would be noise, so hide it
     w._update_category_legend(np.arange(500, dtype=float).reshape(20, 25), "Parent Grain ID")
     assert not w._legend_label.isVisibleTo(w)
+
+
+def test_equalize_does_not_touch_categorical_ids(qtbot, sample_ebsd):
+    """Histogram equalisation is a contrast transform for CONTINUOUS data.
+
+    Applied to a categorical map (Phase / Packet / Block / Variant) it remaps the
+    id values themselves before they are turned into palette indices, so a 2-phase
+    map renders as banded rainbow noise instead of 2 colours. Equalising ids is
+    meaningless — the numbers are labels, not intensities.
+    """
+    import numpy as np
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    w.set_ebsd_map(sample_ebsd)
+
+    w._hist_eq_cb.setChecked(True)
+    w._display_combo.setCurrentText("Phase")
+
+    raw = sample_ebsd.compute_map_property("Phase")
+    shown = w._image_item.image
+    if raw.dtype in (np.float32, np.float64):
+        raw = (np.clip(raw, 0, 1) * 255).astype(np.uint8)
+
+    assert np.array_equal(shown, raw), (
+        "equalisation altered a categorical Phase map — its colours are labels, "
+        "not intensities, so the stretch must be skipped"
+    )
+    assert not w._hist_eq_cb.isEnabled(), (
+        "Equalize must be disabled on a categorical map, not silently ignored — "
+        "an enabled control that does nothing is a false affordance"
+    )
+
+
+def test_overlay_opacity_does_not_dilute_its_scrim(qtbot):
+    """A looping opacity pulse multiplied the scrim alpha: a 0.94 background
+    rendered at ~0.65 measured, dropping text contrast below the readable floor.
+    The overlay must settle fully opaque."""
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    assert w._overlay_anim.loopCount() == 1, "overlay must not pulse forever"
+    assert w._overlay_anim.endValue() == 1.0
+    assert w._overlay_opacity.opacity() == 1.0

@@ -188,12 +188,16 @@ class MapViewer(QWidget):
 
         self._overlay_opacity = QGraphicsOpacityEffect(self._computing_overlay)
         self._computing_overlay.setGraphicsEffect(self._overlay_opacity)
+        # A looping opacity pulse multiplied the scrim's own alpha (0.94 rendered
+        # as ~0.65 measured), dropping text contrast under the readable floor.
+        # Fade in once and stay solid; readability beats the breathing effect.
+        self._overlay_opacity.setOpacity(1.0)
         self._overlay_anim = QPropertyAnimation(self._overlay_opacity, b"opacity")
-        self._overlay_anim.setDuration(800)
-        self._overlay_anim.setStartValue(0.6)
+        self._overlay_anim.setDuration(180)
+        self._overlay_anim.setStartValue(0.0)
         self._overlay_anim.setEndValue(1.0)
-        self._overlay_anim.setEasingCurve(QEasingCurve.Type.InOutSine)
-        self._overlay_anim.setLoopCount(-1)
+        self._overlay_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._overlay_anim.setLoopCount(1)
 
         self._status_strip = QLabel("")
         self._status_strip.setFixedHeight(20)
@@ -403,9 +407,21 @@ class MapViewer(QWidget):
             if meta
             else (image.ndim == 3 and image.shape[2] in (3, 4))
         )
+        # Equalisation is a CONTRAST STRETCH, so it only means anything on a
+        # continuous scalar field (Band Contrast, KAM, GOS, Fit Angle). On the
+        # other two kinds the colour IS the data and stretching corrupts it: a
+        # discrete map's values are id LABELS, so remapping them scrambles the
+        # palette (a 2-phase map rendered as banded rainbow noise), and an RGB
+        # map's channels encode orientation, so per-channel stretching reports a
+        # different orientation than measured. Disable rather than silently
+        # ignore — an enabled control that does nothing is a false affordance.
+        equalisable = not is_rgb and not (meta and meta.dtype == "discrete")
+        self._hist_eq_cb.setEnabled(equalisable)
+        apply_eq = self._hist_eq_enabled and equalisable
+
         if is_rgb:
             self._legend_label.setVisible(False)
-            display = self._apply_hist_eq_rgb(image) if self._hist_eq_enabled else image
+            display = image
             if display.dtype == np.float32 or display.dtype == np.float64:
                 display = (np.clip(display, 0, 1) * 255).astype(np.uint8)
             self._image_item.setImage(display, autoLevels=False, levels=(0, 255))
@@ -413,7 +429,7 @@ class MapViewer(QWidget):
             self._colorbar_plot.setVisible(False)
             self._update_ipf_key(meta)
         else:
-            display = self._apply_hist_eq(image) if self._hist_eq_enabled else image
+            display = self._apply_hist_eq(image) if apply_eq else image
             self._ipf_key_plot.setVisible(False)
             if meta and meta.dtype == "discrete":
                 # Distinct colour per id — a continuous ramp made Packet/Block/

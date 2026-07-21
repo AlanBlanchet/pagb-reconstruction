@@ -1,13 +1,9 @@
-"""OR panel ergonomics.
+"""OR sidebar — controls and derived OR details.
 
-The misorientation histogram is the one plot in this panel, and the panel is a
-side dock capped at 380 px wide. Two things therefore decide whether it is
-readable or a letterbox: it must absorb the panel's spare vertical space rather
-than cede it to a trailing stretch, and it must say which mark is the measured
-distribution and which are the theoretical OR peaks.
+The misorientation histogram used to live here and is now its own dock; see
+tests/test_misorientation_panel.py for why. What remains is a control panel, so
+what matters is that the derived OR details actually track the selected preset.
 """
-
-import pyqtgraph as pg
 
 
 def _panel(qtbot):
@@ -18,36 +14,29 @@ def _panel(qtbot):
     return panel
 
 
-def test_histogram_absorbs_spare_vertical_space(qtbot):
+def test_details_track_the_selected_preset(qtbot):
+    from pagb_reconstruction.core.orientation_relationship import (
+        OrientationRelationship,
+    )
+
     panel = _panel(qtbot)
-    layout = panel._histogram_group.parentWidget().layout()
+    seen = set()
+    for name in OrientationRelationship.preset_names():
+        panel._or_combo.setCurrentText(name)
+        assert panel.get_or_type() == name
+        # rotation angle is derived from the preset, so it must not go stale
+        angle = panel._angle_label.text()
+        assert angle.endswith("°") and angle != "-", f"{name}: no angle shown"
+        seen.add((name, angle, panel._variant_count_label.text()))
 
-    index = layout.indexOf(panel._histogram_group)
-    assert index != -1, "histogram group must be in the panel layout"
-    assert layout.stretch(index) > 0, (
-        "the histogram must take the panel's spare height; with stretch 0 a "
-        "trailing addStretch() eats it and the plot renders as a letterbox"
+    assert len({a for _, a, _ in seen}) > 1, (
+        "every preset reported the same rotation angle — details are not "
+        "recomputed on selection"
     )
 
 
-def test_histogram_is_tall_enough_to_read(qtbot):
+def test_optimize_toggle_is_exposed(qtbot):
     panel = _panel(qtbot)
-    assert panel._hist_plot.minimumHeight() >= 200, (
-        "a 90-bin histogram in a 380 px-wide dock needs real height"
-    )
-
-
-def test_histogram_labels_its_marks(qtbot, sample_ebsd):
-    panel = _panel(qtbot)
-    panel.set_ebsd_map(sample_ebsd)
-
-    legend = panel._hist_plot.plotItem.legend
-    assert legend is not None, "histogram must carry a legend"
-
-    labels = {item[1].text for item in legend.items}
-    assert any("easured" in text for text in labels), (
-        f"the measured distribution must be named; got {labels}"
-    )
-    assert any("heoretical" in text or "OR" in text for text in labels), (
-        f"the dashed theoretical-OR peaks must be named; got {labels}"
-    )
+    assert panel.get_optimize() is True, "OR optimisation defaults on"
+    panel._optimize_cb.setChecked(False)
+    assert panel.get_optimize() is False

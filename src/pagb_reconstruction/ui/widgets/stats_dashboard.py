@@ -54,7 +54,10 @@ class ChartWidget(StyledPlot):
 
     def __init__(self, title: str, x_label: str = "", y_label: str = ""):
         super().__init__(title, x_label=x_label, y_label=y_label)
-        self._widget.setMinimumSize(200, 190)
+        # Fits the bottom dock's shape: it is full-window WIDE but short, so a
+        # chart floor above the ~230px default height makes the panel unable to
+        # render its own content without scrolling.
+        self._widget.setMinimumSize(200, 170)
         self._widget.scene().sigMouseClicked.connect(self._on_click)
 
     def plot(self) -> pg.PlotItem:
@@ -155,10 +158,16 @@ class StatsDashboard(QWidget):
         self._chart_variants = ChartWidget("Variants", "Variant ID", "Pixels")
         self._chart_fit = ChartWidget("Fit Angles", "Fit (\u00b0)", "Count")
 
-        self._chart_grid.addWidget(self._chart_grain_size, 0, 0)
-        self._chart_grid.addWidget(self._chart_misori, 0, 1)
-        self._chart_grid.addWidget(self._chart_variants, 1, 0)
-        self._chart_grid.addWidget(self._chart_fit, 1, 1)
+        # One row, not 2x2: the dock has width to spare and no height to spare.
+        for col, chart in enumerate(
+            (
+                self._chart_grain_size,
+                self._chart_misori,
+                self._chart_variants,
+                self._chart_fit,
+            )
+        ):
+            self._chart_grid.addWidget(chart, 0, col)
         layout.addLayout(self._chart_grid, 1)
 
     def update_stats(

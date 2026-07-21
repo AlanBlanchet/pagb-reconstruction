@@ -339,7 +339,9 @@ QLabel#computingOverlay {
   border-radius: 8px;
 }
 
-QMainWindow > QTabBar::tab { min-width: 90px; }
+/* A readable floor: below this Qt was shrinking labels to nothing.
+   With expanding off, exceeding the bar width now scrolls instead. */
+QMainWindow > QTabBar::tab { min-width: 76px; padding-left: 10px; padding-right: 10px; }
 QLabel#categoryLegend {
   background: $surface_dim;
   color: $fg;

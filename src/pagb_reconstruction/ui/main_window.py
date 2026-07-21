@@ -46,6 +46,7 @@ from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
 from pagb_reconstruction.ui.widgets.or_panel import ORPanel
 from pagb_reconstruction.ui.widgets.param_panel import ParamPanel
 from pagb_reconstruction.ui.widgets.phase_panel import PhasePanel
+from pagb_reconstruction.ui.widgets.misorientation_panel import MisorientationPanel
 from pagb_reconstruction.ui.widgets.parent_review import ParentReviewPanel
 from pagb_reconstruction.ui.widgets.pole_figure import PoleFigureWidget
 from pagb_reconstruction.ui.widgets.reconstruction_panel import ReconstructionPanel
@@ -106,6 +107,7 @@ class MainWindow(QMainWindow):
         self._stats_dashboard = StatsDashboard()
         self._pole_figure = PoleFigureWidget()
         self._parent_review = ParentReviewPanel()
+        self._misorientation_panel = MisorientationPanel()
 
         self._grain_info = QWidget()
         self._grain_form = QFormLayout(self._grain_info)
@@ -199,6 +201,12 @@ class MainWindow(QMainWindow):
             Qt.DockWidgetArea.BottomDockWidgetArea,
             bottom_min,
         )
+        dock_misor = self._add_dock(
+            "Misorientation",
+            self._misorientation_panel,
+            Qt.DockWidgetArea.BottomDockWidgetArea,
+            bottom_min,
+        )
         dock_parents = self._add_dock(
             "Parents",
             self._parent_review,
@@ -208,12 +216,15 @@ class MainWindow(QMainWindow):
 
         self.tabifyDockWidget(dock_recon, dock_stats)
         self.tabifyDockWidget(dock_stats, dock_pole)
-        self.tabifyDockWidget(dock_pole, dock_parents)
+        self.tabifyDockWidget(dock_pole, dock_misor)
+        self.tabifyDockWidget(dock_misor, dock_parents)
         self.tabifyDockWidget(dock_parents, dock_log)
         dock_recon.raise_()
         self._make_dock_tabs_scrollable()
 
-        self._bottom_docks = [dock_recon, dock_stats, dock_pole, dock_parents, dock_log]
+        self._bottom_docks = [
+            dock_recon, dock_stats, dock_pole, dock_misor, dock_parents, dock_log,
+        ]
         self._right_dock = dock_params
 
         self._docks = {
@@ -224,14 +235,16 @@ class MainWindow(QMainWindow):
             "Reconstruction": dock_recon,
             "Statistics": dock_stats,
             "Poles": dock_pole,
+            "Misorientation": dock_misor,
             "Parents": dock_parents,
             "Log": dock_log,
         }
 
-        # The map is the product: keep the side/bottom docks compact so it gets
-        # the dominant area. Cap the right dock width so it cannot crowd the map.
-        for d in (dock_phases, dock_or, dock_params, dock_grain_info):
-            d.setMaximumWidth(380)
+        # The map is the product, so the docks START compact and it gets the
+        # dominant area. That default is a starting point, not a ceiling: a
+        # setMaximumWidth cap here left only 60px of splitter travel, which reads
+        # as "the splitter does nothing" and made it impossible to ever give the
+        # OR histogram or the stats grid the room they need.
         self.resizeDocks([dock_phases], [320], Qt.Orientation.Horizontal)
         self.resizeDocks([dock_recon], [230], Qt.Orientation.Vertical)
 
@@ -266,6 +279,9 @@ class MainWindow(QMainWindow):
 
         for bar in self.findChildren(QTabBar):
             bar.setUsesScrollButtons(True)
+            # Expanding tabs are squeezed to fit the bar; with it off they keep
+            # their natural width, overflow, and the scroll arrows appear.
+            bar.setExpanding(False)
             # ElideRight lets Qt shrink a tab label to zero characters, which is
             # how tabs "vanished". ElideNone forces it to keep the tab's width
             # and show scroll arrows instead.
@@ -298,6 +314,14 @@ class MainWindow(QMainWindow):
         self._make_dock_tabs_scrollable()
         self._log("Layout reset")
 
+    def _reassert_canvas_share(self):
+        """Re-apply the canvas share after something resized the docks."""
+        if self._ebsd_map is None:
+            return
+        rows, cols = self._ebsd_map.shape
+        if rows:
+            self._fit_layout_to_map_aspect(cols / rows)
+
     def _bottom_dock_height(self) -> int:
         return self._docks["Reconstruction"].height()
 
@@ -322,6 +346,23 @@ class MainWindow(QMainWindow):
         self.resizeDocks(
             [self._docks["Reconstruction"]], [target], Qt.Orientation.Vertical
         )
+        self._cap_bottom_docks()
+
+    def _cap_bottom_docks(self):
+        """Hard ceiling on the bottom docks' height.
+
+        Re-asserting the size after a resize is timing-dependent: populating the
+        statistics and pole panels grows the dock again on a later layout pass,
+        which is why the canvas still collapsed ~20% on a real window manager
+        even though it measured stable headless. A maximum height cannot be
+        outvoted by a later sizeHint, so the canvas can never be squeezed below
+        its share — while leaving the user free to resize within that range.
+        """
+        ceiling = max(200, int(self.height() * 0.42))
+        for name in ("Reconstruction", "Statistics", "Poles", "Parents", "Log"):
+            dock = self._docks.get(name)
+            if dock is not None:
+                dock.setMaximumHeight(ceiling)
 
     def _setup_menu(self):
         menu_bar = self.menuBar()
@@ -626,6 +667,9 @@ class MainWindow(QMainWindow):
     def _on_or_changed(self, or_name: str):
         self._status_bar.showMessage(f"OR changed to: {or_name}")
         self._log(f"OR changed to: {or_name}")
+        # The chart compares the measured spectrum against THIS OR's peaks, so it
+        # is wrong the moment the selection changes.
+        self._misorientation_panel.set_or_type(or_name)
 
     def _on_roi_changed(self, x, y, w, h):
         self._status_bar.showMessage(f"ROI: ({x}, {y}) {w}\u00d7{h} px")
@@ -741,7 +785,8 @@ class MainWindow(QMainWindow):
             rows, cols = self._ebsd_map.shape
             if rows:
                 self._fit_layout_to_map_aspect(cols / rows)
-            self._or_panel.set_ebsd_map(self._ebsd_map)
+            self._misorientation_panel.set_ebsd_map(self._ebsd_map)
+            self._misorientation_panel.set_or_type(self._or_panel.get_or_type())
             self._phase_panel.set_phases(
                 self._ebsd_map.phases, self._ebsd_map.phase_ids
             )
@@ -807,6 +852,10 @@ class MainWindow(QMainWindow):
         if result is not None:
             apply_profile(self, PROFILES["Analyze"])
             self._make_dock_tabs_scrollable()
+            # Populating the stats/pole panels grows the bottom dock AGAIN after
+            # this returns, so re-assert once the event loop has settled.
+            QTimer.singleShot(0, self._reassert_canvas_share)
+            QTimer.singleShot(250, self._reassert_canvas_share)
             # The profile resizes the docks; re-assert the canvas share or the
             # map collapses exactly when the user most wants to see it.
             if self._ebsd_map is not None:

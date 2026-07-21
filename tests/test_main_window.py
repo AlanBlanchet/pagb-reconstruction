@@ -76,3 +76,60 @@ def test_reset_layout_action_is_reachable(qtbot):
     qtbot.addWidget(w)
     titles = [a.text().replace("&", "") for a in w.findChildren(QAction)]
     assert any("Reset Layout" in t for t in titles), "no Reset Layout action"
+
+
+def test_right_docks_are_not_width_capped(qtbot):
+    """A user must be able to widen the right dock to read the OR histogram.
+
+    A hard setMaximumWidth(380) against a 320 default leaves 60px of travel, so
+    dragging the splitter reads as "nothing happens" — measured live as the root
+    cause of the map using ~27% of its width while the docks sat 35-50% empty.
+    The map keeps the dominant share via the resizeDocks default, not a cap that
+    forbids the user from ever changing it.
+    """
+    from pagb_reconstruction.ui.main_window import MainWindow
+
+    w = MainWindow()
+    qtbot.addWidget(w)
+
+    # Assert the property that matters — real splitter travel — not Qt's
+    # sentinel, which differs between QWidget and QDockWidget.
+    for name in ("Phases", "OR", "Params", "Info"):
+        dock = w._docks[name]
+        assert dock.maximumWidth() > 1000, (
+            f"{name} dock is width-capped at {dock.maximumWidth()}px against a "
+            "320px default, so the splitter has almost no travel and the OR "
+            "histogram can never be given room"
+        )
+
+
+def test_dock_tabs_do_not_expand(qtbot):
+    """Expanding tabs get squeezed to fit the bar, which is how labels shrank to
+    nothing. With expanding off they keep their width and overflow to scroll."""
+    from PySide6.QtWidgets import QTabBar
+
+    from pagb_reconstruction.ui.main_window import MainWindow
+
+    w = MainWindow()
+    qtbot.addWidget(w)
+    for bar in w.findChildren(QTabBar):
+        assert not bar.expanding(), "tab bar still squeezes its tabs"
+
+
+def test_bottom_docks_cannot_squeeze_the_canvas(qtbot):
+    """A later sizeHint (the stats/pole panels populating) grew the bottom dock
+    after any re-assert, collapsing the canvas ~20% on a real window manager.
+    A maximum height cannot be outvoted by a later layout pass."""
+    from pagb_reconstruction.ui.main_window import MainWindow
+
+    w = MainWindow()
+    qtbot.addWidget(w)
+    w.resize(1600, 1000)
+    w._cap_bottom_docks()
+
+    ceiling = max(200, int(w.height() * 0.42))
+    for name in ("Reconstruction", "Statistics", "Poles", "Log"):
+        dock = w._docks[name]
+        assert dock.maximumHeight() <= ceiling, f"{name} can grow without bound"
+    # the canvas therefore keeps at least ~58% of the window
+    assert ceiling < w.height() * 0.5
