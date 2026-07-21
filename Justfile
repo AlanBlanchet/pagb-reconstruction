@@ -15,7 +15,7 @@ build:
     uv run pyinstaller pagb.spec --noconfirm
 
 clean:
-    rm -rf dist/ build/ *.AppImage rust_test/target/ .sweep-log/
+    rm -rf dist/ build/ *.AppImage rust/target/ .sweep-log/
 
 # ---------------------------------------------------------------------------
 # Verification
@@ -29,12 +29,12 @@ verify: rust-test rust-build bench test sweep
 # Rust unit tests (pure Rust, no Python involved).
 rust-test:
     @echo "-- Rust unit tests --"
-    cd rust_test && cargo test --release
+    cd rust && cargo test --release
 
 # Compile the Rust extension into the venv as an importable module.
 rust-build:
     @echo "-- building Rust extension --"
-    cd rust_test && ../.venv/bin/maturin develop --release
+    cd rust && ../.venv/bin/maturin develop --release
 
 # Rust vs numpy vs numba: asserts they AGREE, then reports speed.
 bench:
