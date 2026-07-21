@@ -2,6 +2,7 @@ import logging
 import platform
 import sys
 from datetime import datetime
+from html import escape
 from pathlib import Path
 
 import numpy as np
@@ -39,7 +40,7 @@ from pagb_reconstruction.utils import bug_report, logging_setup
 from pagb_reconstruction.io.base import load_ebsd
 from pagb_reconstruction.io.figure_export import export_map_figure
 from pagb_reconstruction.io.reconstruction_export import ReconstructionExporter
-from pagb_reconstruction.ui.theme import THEMES, icon, set_theme
+from pagb_reconstruction.ui.theme import THEMES, active_theme, icon, set_theme
 from pagb_reconstruction.ui.workspaces import PROFILES, apply_profile
 from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
 from pagb_reconstruction.ui.widgets.or_panel import ORPanel
@@ -609,9 +610,16 @@ class MainWindow(QMainWindow):
         self._log(f"Reattached parent {source_id} to {target_id}")
         self._status_bar.showMessage(f"Parent {source_id} reattached to {target_id}")
 
-    def _log(self, msg: str):
+    def _log(self, msg: str, highlight: bool = False):
         ts = datetime.now().strftime("%H:%M:%S")
-        self._log_text.appendPlainText(f"[{ts}] {msg}")
+        if highlight:
+            # A one-time confirmation of a user action must not blend into
+            # routine INFO lines on scrollback.
+            self._log_text.appendHtml(
+                f'<span style="color: {active_theme().accent};">[{ts}] {escape(msg)}</span>'
+            )
+        else:
+            self._log_text.appendPlainText(f"[{ts}] {msg}")
         # Mirror into the session log file so a bug report carries it.
         logging.getLogger("pagb_reconstruction.ui").info("%s", msg)
 
@@ -1068,6 +1076,11 @@ class MainWindow(QMainWindow):
             logging_setup.tail(60),
         )
         QDesktopServices.openUrl(QUrl(url))
+        # The browser may open behind the app window — without feedback the
+        # click reads as dead.
+        msg = "Bug report opened in your browser — attach the full log (Help > Open Log File) if needed"
+        self.statusBar().showMessage(msg, 8000)
+        self._log(msg, highlight=True)
 
     def _open_log_file(self):
         """Reveal the session log so the user can attach it to a report."""

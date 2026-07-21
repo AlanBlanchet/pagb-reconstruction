@@ -89,3 +89,6 @@ def test_report_bug_action_emits_bounded_url(qtbot, monkeypatch, tmp_path):
     logging_setup.reset()
     assert opened, "Report Bug did not open any URL"
     assert len(opened[0]) <= MAX_URL_LEN, f"URL is {len(opened[0])} chars"
+    # The browser can open behind the app — the click must leave visible feedback.
+    assert w.statusBar().currentMessage(), "no in-app feedback after Report Bug"
+    assert "Bug report opened" in w._log_text.toPlainText(), "no Log-panel line"
