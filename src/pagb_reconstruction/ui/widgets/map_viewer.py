@@ -550,11 +550,15 @@ class MapViewer(QWidget):
         if not self._boundary_visible or self._ebsd_map is None:
             self._boundary_item.setVisible(False)
             return
-        boundary = self._ebsd_map.grain_boundary_map()
+        # grain_boundary_map() is float (it passes through _to_grid, which needs
+        # a float fill); indexing with it directly raised IndexError inside this
+        # slot on every draw, so the overlay silently never appeared.
+        boundary = np.asarray(self._ebsd_map.grain_boundary_map())
+        mask = np.isfinite(boundary) & (boundary > 0)
         rgba = np.zeros((*boundary.shape, 4), dtype=np.float32)
-        rgba[boundary, 0] = 1.0
-        rgba[boundary, 1] = 1.0
-        rgba[boundary, 3] = 0.6
+        rgba[mask, 0] = 1.0
+        rgba[mask, 1] = 1.0
+        rgba[mask, 3] = 0.6
         self._boundary_item.setImage(rgba, autoLevels=False, levels=(0, 1))
         self._boundary_item.setVisible(True)
 
@@ -686,8 +690,10 @@ class MapViewer(QWidget):
         if path:
             self.export_image(path)
 
-    def toggle_line_mode(self):
-        self._line_mode = not self._line_mode
+    def toggle_line_mode(self, enabled: bool | None = None):
+        # Slot for QAction.toggled(bool); the old zero-argument form raised
+        # TypeError on every click, leaving the toolbar button silently dead.
+        self._line_mode = (not self._line_mode) if enabled is None else bool(enabled)
         if not self._line_mode:
             self._clear_line()
             self._line_start = None

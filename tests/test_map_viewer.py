@@ -133,3 +133,52 @@ def test_failed_compute_clears_stale_image(qtbot):
     w._current_image = np.ones((4, 4))
     w._on_compute_error("boom", w._compute_generation)
     assert w._current_image is None, "stale image survived a failed computation"
+
+
+def test_line_mode_accepts_toggled_bool(qtbot):
+    """The toolbar connects QAction.toggled(bool) to this slot. The old
+    zero-argument signature made every click raise TypeError inside the event
+    loop — the Line Profile button was silently dead in the shipped app."""
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    w.toggle_line_mode(True)
+    assert w._line_mode is True
+    w.toggle_line_mode(False)
+    assert w._line_mode is False
+    # argument-less call still toggles (keyboard/debug path)
+    w.toggle_line_mode()
+    assert w._line_mode is True
+
+
+def test_boundary_overlay_accepts_float_mask(qtbot):
+    """Issue #9: "je ne vois ni les grains parents ni les joints de grains".
+
+    grain_boundary_map() returns float64 (it goes through _to_grid, which needs a
+    float fill), but the overlay used it directly as a boolean index, raising
+    IndexError inside a Qt slot on EVERY draw — so the boundary checkbox silently
+    did nothing. Only the session log surfaced it.
+    """
+    import numpy as np
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    class _FakeMap:
+        shape = (6, 8)
+
+        def grain_boundary_map(self):
+            m = np.zeros(self.shape, dtype=np.float64)
+            m[2, :] = 1.0
+            return m
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    w._ebsd_map = _FakeMap()
+    w._boundary_visible = True
+    w._update_boundary()  # must not raise
+
+    rgba = w._boundary_item.image
+    assert rgba is not None
+    assert rgba[2, 0, 3] > 0.0, "boundary row not painted"
+    assert rgba[0, 0, 3] == 0.0, "non-boundary pixel painted"
