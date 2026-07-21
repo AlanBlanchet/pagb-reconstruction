@@ -182,3 +182,39 @@ def test_boundary_overlay_accepts_float_mask(qtbot):
     assert rgba is not None
     assert rgba[2, 0, 3] > 0.0, "boundary row not painted"
     assert rgba[0, 0, 3] == 0.0, "non-boundary pixel painted"
+
+
+def test_computing_overlay_paints_its_scrim(qtbot):
+    """The overlay has a dark scrim in SCSS, but a QLabel parented to a
+    QGraphicsView will not paint a stylesheet background without
+    WA_StyledBackground — so the text sat directly on the grain map."""
+    from PySide6.QtCore import Qt
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    assert w._computing_overlay.testAttribute(
+        Qt.WidgetAttribute.WA_StyledBackground
+    ), "overlay will not paint its background over the map"
+
+
+def test_categorical_legend_for_few_categories(qtbot):
+    """Packet/Block/Variant maps shipped four flat colours and no key."""
+    import numpy as np
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+
+    w._update_category_legend(np.array([[0, 1], [2, 3]], dtype=float), "Packet")
+    assert w._legend_label.isVisibleTo(w)
+    html = w._legend_label.text()
+    assert "Packet" in html
+    for cat in ("0", "1", "2", "3"):
+        assert f">{cat}<" in html or f" {cat}<" in html
+
+    # thousands of parent grains: a legend would be noise, so hide it
+    w._update_category_legend(np.arange(500, dtype=float).reshape(20, 25), "Parent Grain ID")
+    assert not w._legend_label.isVisibleTo(w)

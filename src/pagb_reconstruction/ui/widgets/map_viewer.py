@@ -174,8 +174,19 @@ class MapViewer(QWidget):
 
         layout.addWidget(self._graphics_view, 1)
 
+        # Key for categorical maps (Packet/Block/Variant/Phase). Hidden when the
+        # map has too many categories for a legend to mean anything.
+        self._legend_label = QLabel("", self)
+        self._legend_label.setObjectName("categoryLegend")
+        self._legend_label.setTextFormat(Qt.TextFormat.RichText)
+        self._legend_label.setVisible(False)
+        layout.addWidget(self._legend_label)
+
         self._computing_overlay = QLabel("", self._graphics_view)
         self._computing_overlay.setObjectName("computingOverlay")
+        # Without this a QLabel parented to a QGraphicsView ignores its
+        # stylesheet background, leaving the text unreadable over the map.
+        self._computing_overlay.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._computing_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._computing_overlay.setVisible(False)
 
@@ -292,6 +303,14 @@ class MapViewer(QWidget):
         self._crosshair_v.setVisible(False)
         self._placeholder.setVisible(True)
 
+    def current_image(self):
+        """The data currently displayed (not the rendered pixmap)."""
+        return self._current_image
+
+    def current_meta(self):
+        """Metadata for the current display mode (unit, colormap, dtype)."""
+        return self._find_meta(self._display_combo.currentText())
+
     def current_display_mode(self) -> str:
         return self._display_combo.currentText()
 
@@ -389,6 +408,7 @@ class MapViewer(QWidget):
             else (image.ndim == 3 and image.shape[2] in (3, 4))
         )
         if is_rgb:
+            self._legend_label.setVisible(False)
             display = self._apply_hist_eq_rgb(image) if self._hist_eq_enabled else image
             if display.dtype == np.float32 or display.dtype == np.float64:
                 display = (np.clip(display, 0, 1) * 255).astype(np.uint8)
@@ -412,6 +432,7 @@ class MapViewer(QWidget):
                 )
                 self._image_item.setLookupTable(lut)
                 self._colorbar_plot.setVisible(False)
+                self._update_category_legend(display, meta.name if meta else "")
             else:
                 cmap_name = (
                     meta.colormap if meta and meta.colormap else self._colormap_name
@@ -424,6 +445,32 @@ class MapViewer(QWidget):
         self._update_boundary()
         self._update_scalebar()
         self._plot.getViewBox().autoRange(padding=0)
+
+
+    _MAX_LEGEND_CATEGORIES = 24
+
+    def _update_category_legend(self, image, mode: str):
+        """Show a swatch key for a categorical map, or hide it when useless."""
+        data = np.asarray(image)
+        finite = data[np.isfinite(data)]
+        cats = np.unique(finite[finite >= 0]).astype(int) if finite.size else np.array([])
+        if cats.size == 0 or cats.size > self._MAX_LEGEND_CATEGORIES:
+            self._legend_label.setVisible(False)
+            return
+
+        lut = self._categorical_lut()
+        chips = []
+        for cat in cats:
+            idx = int(self._discrete_indices(np.array([[float(cat)]]), len(lut))[0, 0])
+            r, g, b = (int(v) for v in lut[idx])
+            chips.append(
+                f'<span style="background-color:rgb({r},{g},{b});">&nbsp;&nbsp;&nbsp;</span>'
+                f'&nbsp;<span>{cat}</span>'
+            )
+        self._legend_label.setText(
+            f'<b>{mode}</b>&nbsp;&nbsp;' + "&nbsp;&nbsp;&nbsp;".join(chips)
+        )
+        self._legend_label.setVisible(True)
 
     @staticmethod
     def _discrete_indices(image, n_colors: int) -> np.ndarray:

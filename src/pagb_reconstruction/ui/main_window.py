@@ -38,6 +38,7 @@ from pagb_reconstruction.core.reconstruction import ReconstructionConfig
 from pagb_reconstruction.core.updater import UpdateChecker
 from pagb_reconstruction.utils import logging_setup
 from pagb_reconstruction.io.base import load_ebsd
+from pagb_reconstruction.io.figure_export import export_map_figure
 from pagb_reconstruction.io.reconstruction_export import ReconstructionExporter
 from pagb_reconstruction.ui.theme import THEMES, icon, set_theme
 from pagb_reconstruction.ui.workspaces import PROFILES, apply_profile
@@ -169,6 +170,7 @@ class MainWindow(QMainWindow):
         self.tabifyDockWidget(dock_or, dock_params)
         self.tabifyDockWidget(dock_params, dock_grain_info)
         dock_phases.raise_()
+        self._make_dock_tabs_scrollable()
 
         dock_recon = self._add_dock(
             "Reconstruction",
@@ -206,6 +208,7 @@ class MainWindow(QMainWindow):
         self.tabifyDockWidget(dock_pole, dock_parents)
         self.tabifyDockWidget(dock_parents, dock_log)
         dock_recon.raise_()
+        self._make_dock_tabs_scrollable()
 
         self._bottom_docks = [dock_recon, dock_stats, dock_pole, dock_parents, dock_log]
         self._right_dock = dock_params
@@ -247,6 +250,72 @@ class MainWindow(QMainWindow):
         dock.setMinimumSize(*min_size)
         self.addDockWidget(area, dock)
         return dock
+
+
+    def _make_dock_tabs_scrollable(self):
+        """Tabbed docks must overflow, not silently drop tabs.
+
+        Under width pressure Qt was dropping whole tabs with no arrow or
+        ellipsis, so panels disappeared outright — different ones at different
+        widths.
+        """
+        from PySide6.QtWidgets import QTabBar
+
+        for bar in self.findChildren(QTabBar):
+            bar.setUsesScrollButtons(True)
+            bar.setElideMode(Qt.TextElideMode.ElideRight)
+
+    def reset_layout(self):
+        """Restore every panel and the default arrangement.
+
+        Closing docks was unrecoverable: a user could hide the Reconstruction
+        panel — the one that runs the analysis — and Qt persisted that state
+        across every future launch.
+        """
+        for dock in self._docks.values():
+            dock.setVisible(True)
+            dock.setFloating(False)
+        right = ["Phases", "OR", "Params", "Info"]
+        bottom = ["Reconstruction", "Statistics", "Poles", "Parents", "Log"]
+        for group in (right, bottom):
+            names = [n for n in group if n in self._docks]
+            for first, second in zip(names, names[1:]):
+                self.tabifyDockWidget(self._docks[first], self._docks[second])
+            if names:
+                self._docks[names[0]].raise_()
+        if "Phases" in self._docks:
+            self.resizeDocks([self._docks["Phases"]], [320], Qt.Orientation.Horizontal)
+        if "Reconstruction" in self._docks:
+            self.resizeDocks(
+                [self._docks["Reconstruction"]], [230], Qt.Orientation.Vertical
+            )
+        self._make_dock_tabs_scrollable()
+        self._log("Layout reset")
+
+    def _bottom_dock_height(self) -> int:
+        return self._docks["Reconstruction"].height()
+
+    def _fit_layout_to_map_aspect(self, map_aspect: float):
+        """Shape the central area toward the loaded map's aspect ratio.
+
+        A tall map inside a wide, short viewport wastes most of the canvas on
+        empty background (issue #11: "trop large et pas assez haute, pas adaptée
+        à la cartographie chargée"). Give the bottom docks less room for a tall
+        map, more for a wide one, within sane bounds.
+        """
+        if map_aspect <= 0 or "Reconstruction" not in self._docks:
+            return
+        available = max(self.height() - 160, 300)
+        if map_aspect < 1.0:
+            frac = 0.16
+        elif map_aspect < 2.0:
+            frac = 0.24
+        else:
+            frac = 0.32
+        target = max(140, min(int(available * frac), int(available * 0.4)))
+        self.resizeDocks(
+            [self._docks["Reconstruction"]], [target], Qt.Orientation.Vertical
+        )
 
     def _setup_menu(self):
         menu_bar = self.menuBar()
@@ -453,6 +522,11 @@ class MainWindow(QMainWindow):
         reset_action = QAction(icon("reset"), "Reset", self)
         reset_action.setToolTip("Reset all views and selections")
         reset_action.triggered.connect(self._reset)
+
+        reset_layout_action = QAction(icon("reset"), "Reset Layout", self)
+        reset_layout_action.setToolTip("Restore all panels and the default arrangement")
+        reset_layout_action.triggered.connect(self.reset_layout)
+        toolbar.addAction(reset_layout_action)
         toolbar.addAction(reset_action)
 
         for i in range(1, 10):
@@ -642,6 +716,10 @@ class MainWindow(QMainWindow):
             self._ebsd_map = load_ebsd(path)
             self._add_recent(path)
             self._map_viewer.set_ebsd_map(self._ebsd_map)
+            # Shape the canvas toward this map's aspect (issue #11).
+            rows, cols = self._ebsd_map.shape
+            if rows:
+                self._fit_layout_to_map_aspect(cols / rows)
             self._or_panel.set_ebsd_map(self._ebsd_map)
             self._phase_panel.set_phases(
                 self._ebsd_map.phases, self._ebsd_map.phase_ids
@@ -787,12 +865,37 @@ class MainWindow(QMainWindow):
 
     def _export_image(self):
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export Image", "", "PNG (*.png);;SVG (*.svg);;All Files (*)"
+            self,
+            "Export Image",
+            "",
+            "PNG (*.png);;JPEG (*.jpg);;SVG (*.svg);;All Files (*)",
         )
         if not path:
             return
-        self._map_viewer.export_image(path)
-        self._log(f"Exported image to {path}")
+        image = self._map_viewer.current_image()
+        if image is None or self._ebsd_map is None:
+            # Nothing computed yet — fall back to a raw widget grab.
+            self._map_viewer.export_image(path)
+            self._log(f"Exported image to {path}")
+            return
+
+        mode = self._map_viewer.current_display_mode()
+        meta = self._map_viewer.current_meta()
+        try:
+            export_map_figure(
+                path,
+                image,
+                title=mode,
+                step_size=self._ebsd_map.step_size,
+                unit=(meta.unit if meta else "") or "",
+                colormap=(meta.colormap if meta and meta.colormap else "viridis"),
+                categorical=bool(meta and meta.dtype == "discrete"),
+            )
+            self._log(f"Exported figure (scale bar + key) to {path}")
+        except Exception as e:  # noqa: BLE001 — never lose the user's export
+            logging.getLogger(__name__).exception("Figure export failed")
+            self._map_viewer.export_image(path)
+            self._log(f"Exported image to {path} (plain: {e})")
 
     def _export_stats(self):
         if self._result is None:

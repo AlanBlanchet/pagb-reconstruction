@@ -338,4 +338,12 @@ QLabel#computingOverlay {
 }
 
 QMainWindow > QTabBar::tab { min-width: 90px; }
+QLabel#categoryLegend {
+  background: $surface_dim;
+  color: $fg;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-top: 1px solid $border;
+}
+
 QLabel#infoHint { color: $text_muted; font-style: italic; padding-bottom: 6px; }
