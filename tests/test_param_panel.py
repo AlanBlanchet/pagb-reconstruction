@@ -70,3 +70,25 @@ def test_bainite_preset_exists_and_is_looser(qtbot):
     # Bainite has weak variant selection -> wider lath spread -> looser grouping.
     assert bainite.threshold_deg >= default.threshold_deg
     assert bainite.min_parent_size_um > 0
+
+
+def test_reset_to_defaults_button(qtbot):
+    """Issue #11: "Il faudrait un bouton pour restaurer les paramètres par défaut"."""
+    from pagb_reconstruction.core.reconstruction import ReconstructionConfig
+    from pagb_reconstruction.ui.widgets.param_panel import ParamPanel
+
+    panel = ParamPanel()
+    qtbot.addWidget(panel)
+
+    changed = ReconstructionConfig()
+    changed.threshold_deg = changed.threshold_deg + 3.5
+    changed.min_parent_size_um = 7.5
+    panel.set_config(changed)
+    assert panel.get_config().threshold_deg != ReconstructionConfig().threshold_deg
+
+    panel.reset_to_defaults()
+
+    restored = panel.get_config()
+    defaults = ReconstructionConfig()
+    assert restored.threshold_deg == defaults.threshold_deg
+    assert restored.min_parent_size_um == defaults.min_parent_size_um

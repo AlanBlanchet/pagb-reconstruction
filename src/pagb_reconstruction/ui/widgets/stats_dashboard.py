@@ -202,7 +202,10 @@ class StatsDashboard(QWidget):
         if self._result is None or self._ebsd_map is None:
             return
         self._grain_metrics = self._metrics_form.to_model()
-        grain_map = self._result.parent_grain_ids.reshape(self._ebsd_map.shape)
+        # _to_grid, not reshape: on a hexagonal scan the measured points do not
+        # fill the grid, so reshape raises and Qt swallows it (issue #11,
+        # "l'outil measure ne marche pas").
+        grain_map = self._ebsd_map._to_grid(self._result.parent_grain_ids, fill=-1)
         step = float(self._ebsd_map.step_size[0])
         gr = self._grain_metrics.measure(grain_map, step_size=step)
         self._metrics_label.setText(

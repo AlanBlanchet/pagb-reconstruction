@@ -18,6 +18,7 @@ from pagb_reconstruction.core.constants import (
 )
 from pagb_reconstruction.core.grain import Grain, detect_grains
 from pagb_reconstruction.core.phase import PhaseConfig
+from pagb_reconstruction.core.grid import GridInfo
 from pagb_reconstruction.utils.array_ops import boundaries_from_2d
 from pagb_reconstruction.utils.colormap import DEFAULT_IPF_DIRECTION, ipf_colors
 from pagb_reconstruction.utils.compute import Quaternions
@@ -34,9 +35,12 @@ class PixelTopology(BaseModel):
     degree: np.ndarray
 
     @classmethod
-    def from_crystal_map(cls, xmap: CrystalMap):
+    def from_crystal_map(cls, xmap: CrystalMap, grid=None):
         x, y = xmap.x, xmap.y
-        dx, dy = float(xmap.dx or 1), float(xmap.dy or 1)
+        if grid is not None:
+            dx, dy = grid.dx, grid.dy
+        else:
+            dx, dy = float(xmap.dx or 1), float(xmap.dy or 1)
         coords = np.column_stack([x, y])
         tree = cKDTree(coords)
 
@@ -48,8 +52,24 @@ class PixelTopology(BaseModel):
         pair_set = tree.query_pairs(r, output_type="ndarray").astype(np.int32)
 
         rows = np.round((y - y.min()) / dy).astype(int)
-        cols = np.round((x - x.min()) / dx).astype(int)
-        grid_shape = (int(rows.max() + 1), int(cols.max() + 1))
+        if grid is not None and grid.hexagonal:
+            # Odd rows are offset by dx/2, so x/dx is not a column index. Within a
+            # row the points are simply ordered left to right, so rank them.
+            order = np.lexsort((x, rows))
+            sorted_rows = rows[order]
+            starts = np.flatnonzero(
+                np.r_[True, sorted_rows[1:] != sorted_rows[:-1]]
+            )
+            counts = np.diff(np.r_[starts, len(order)])
+            ranks = np.arange(len(order)) - np.repeat(starts, counts)
+            cols = np.empty(len(order), dtype=int)
+            cols[order] = ranks
+        else:
+            cols = np.round((x - x.min()) / dx).astype(int)
+        grid_shape = (
+            grid.shape if grid is not None
+            else (int(rows.max() + 1), int(cols.max() + 1))
+        )
         pixel_to_rc = np.column_stack([rows, cols])
 
         degree = np.zeros(len(x), dtype=np.int32)
@@ -68,6 +88,9 @@ class PixelTopology(BaseModel):
 class EBSDMap(SpatialMap):
     crystal_map: CrystalMap
     phases: list[PhaseConfig]
+    # Scan geometry as stated by the file header, when it states it. orix infers
+    # the step from coordinate gaps, which is wrong for hexagonal scans.
+    grid: GridInfo | None = None
     grains: list[Grain] | None = None
     parent_map: CrystalMap | None = None
     _result: Any = None
@@ -79,7 +102,7 @@ class EBSDMap(SpatialMap):
     @property
     def topology(self) -> PixelTopology:
         if self._topology is None:
-            self._topology = PixelTopology.from_crystal_map(self.crystal_map)
+            self._topology = PixelTopology.from_crystal_map(self.crystal_map, self.grid)
         return self._topology
 
     @property
@@ -96,6 +119,8 @@ class EBSDMap(SpatialMap):
 
     @property
     def shape(self) -> tuple[int, int]:
+        if self.grid is not None:
+            return self.grid.shape
         return (
             (self.crystal_map.shape[0], self.crystal_map.shape[1])
             if len(self.crystal_map.shape) == 2
@@ -104,6 +129,8 @@ class EBSDMap(SpatialMap):
 
     @property
     def step_size(self) -> tuple[float, float]:
+        if self.grid is not None:
+            return (self.grid.dy, self.grid.dx)
         dx = self.crystal_map.dx
         dy = self.crystal_map.dy
         return (float(dy) if dy else 1.0, float(dx) if dx else 1.0)

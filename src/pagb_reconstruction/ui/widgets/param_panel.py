@@ -6,6 +6,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
+    QPushButton,
     QComboBox,
     QDoubleSpinBox,
     QFrame,
@@ -313,6 +314,12 @@ class ParamPanel(QWidget):
         self._preset_control.selection_changed.connect(self._apply_preset)
         layout.addWidget(self._preset_control)
 
+        self._reset_btn = QPushButton("Restore defaults")
+        self._reset_btn.setToolTip("Reset every parameter to its default value")
+        self._reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._reset_btn.clicked.connect(self.reset_to_defaults)
+        layout.addWidget(self._reset_btn)
+
         self._cards_container = QVBoxLayout()
         self._cards_container.setSpacing(6)
         layout.addLayout(self._cards_container)
@@ -394,6 +401,10 @@ class ParamPanel(QWidget):
         if annotation is str:
             return QLineEdit(str(value or ""))
         return None
+
+    def reset_to_defaults(self):
+        """Restore every parameter to its default (issue #11)."""
+        self.set_config(ReconstructionConfig())
 
     def _apply_preset(self, name: str):
         preset = _PRESETS.get(name)

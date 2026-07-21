@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from pagb_reconstruction.core.crystal import CrystalFamily, LatticeParams
 from pagb_reconstruction.core.ebsd_map import EBSDMap
+from pagb_reconstruction.io.grid_header import read_grid_header
 from pagb_reconstruction.core.phase import PhaseConfig
 
 
@@ -29,7 +30,9 @@ class EBSDLoader(BaseModel):
             if tmp_dir is not None:
                 shutil.rmtree(tmp_dir)
         phases = extract_phases(xmap)
-        return EBSDMap(crystal_map=xmap, phases=phases)
+        # Geometry from the file header beats orix's inference, which halves the
+        # step on hex scans and imports the map at twice its true width.
+        return EBSDMap(crystal_map=xmap, phases=phases, grid=read_grid_header(path))
 
     def save(self, ebsd_map: EBSDMap, path: Path) -> None:
         orix_save(str(path), ebsd_map.crystal_map)
