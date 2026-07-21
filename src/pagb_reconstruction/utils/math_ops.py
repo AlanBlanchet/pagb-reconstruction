@@ -253,11 +253,25 @@ class MisorientationOps:
 
     @staticmethod
     def refine_or_cost(pair_qi, pair_qj, variants, sym_quats) -> float:
-        from pagb_reconstruction.utils import quaternion_kernels
+        # The reconstruction's hot path. Rust when it is installed (~6x the numba
+        # kernel here), otherwise the numba kernel.
+        try:
+            import pagb_kernels
 
-        return quaternion_kernels.kernels().refine_or_cost(
-            pair_qi, pair_qj, variants, sym_quats
-        )
+            return float(
+                pagb_kernels.refine_or_cost(
+                    np.ascontiguousarray(pair_qi, dtype=np.float64),
+                    np.ascontiguousarray(pair_qj, dtype=np.float64),
+                    np.ascontiguousarray(variants, dtype=np.float64),
+                    np.ascontiguousarray(sym_quats, dtype=np.float64),
+                )
+            )
+        except ImportError:
+            from pagb_reconstruction.utils import quaternion_kernels
+
+            return quaternion_kernels.kernels().refine_or_cost(
+                pair_qi, pair_qj, variants, sym_quats
+            )
 
     @staticmethod
     def pairs(

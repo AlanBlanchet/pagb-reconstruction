@@ -22,9 +22,9 @@ clean:
 # ---------------------------------------------------------------------------
 
 # Verify everything: Rust kernels, Python suite, backend agreement, live app.
-run_run: rust-test rust-build bench test sweep
+verify: rust-test rust-build bench test sweep
     @echo ""
-    @echo "run_run complete - Rust kernels, Python suite, backend agreement and the app sweep all passed."
+    @echo "verify complete - Rust kernels, Python suite, backend agreement and the app sweep all passed."
 
 # Rust unit tests (pure Rust, no Python involved).
 rust-test:

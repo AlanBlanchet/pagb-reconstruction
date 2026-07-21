@@ -3,9 +3,9 @@ requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "pagb-rust"
+name = "pagb-kernels"
 version = "0.1.0"
-description = "Rust kernels for PAGB reconstruction — evaluation prototype"
+description = "Compiled Rust kernels for PAGB reconstruction"
 requires-python = ">=3.10"
 
 [tool.maturin]

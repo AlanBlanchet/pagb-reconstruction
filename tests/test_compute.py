@@ -66,3 +66,30 @@ def test_backends_agree(backend):
     ref_var = _NumpyQuaternions.best_variant(variants, parent, child)
     assert np.allclose(backend.fit_angles(variants, parent, child, sym), ref_fit, atol=1e-2)
     assert np.array_equal(backend.best_variant(variants, parent, child), ref_var)
+
+
+def test_rust_backend_agrees_when_available():
+    """If the compiled Rust kernels are installed they must be numerically
+    interchangeable with the numba ones — they are selected automatically."""
+    pytest.importorskip("pagb_kernels")
+    from pagb_reconstruction.utils.compute import _NumbaQuaternions, _RustQuaternions
+
+    q = _rand_quats(150, 41)
+    sym = _rand_quats(24, 42)
+    got = _RustQuaternions.pairwise_below(q, sym, 30.0)
+    ref = _NumbaQuaternions.pairwise_below(q, sym, 30.0)
+    assert np.array_equal(got, ref)
+
+
+def test_refine_or_cost_agrees_across_backends():
+    pytest.importorskip("pagb_kernels")
+    from pagb_reconstruction.utils import quaternion_kernels
+    from pagb_reconstruction.utils.math_ops import MisorientationOps
+
+    variants = _rand_quats(24, 43)
+    sym = _rand_quats(24, 44)
+    qi, qj = _rand_quats(200, 45), _rand_quats(200, 46)
+
+    shipped = MisorientationOps.refine_or_cost(qi, qj, variants, sym)
+    numba_only = quaternion_kernels.kernels().refine_or_cost(qi, qj, variants, sym)
+    assert abs(shipped - numba_only) < 1e-3

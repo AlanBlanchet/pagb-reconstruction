@@ -11,7 +11,7 @@ import numpy as np
 from pagb_reconstruction.utils.compute import _NumbaQuaternions, _NumpyQuaternions
 
 try:
-    import pagb_rust
+    import pagb_kernels as pagb_rust
 
     HAVE_RUST = True
 except ImportError:
@@ -79,6 +79,21 @@ def main():
             got_rs, t_rs = timed(pagb_rust.pairwise_below, q, sym, 7.0, repeat=1)
             assert np.array_equal(got_rs, ref), "RUST DISAGREES with numpy"
             line += f"   rust {t_rs:7.3f}s   (rust vs numpy {t_np / t_rs:5.1f}x)"
+        print(line, flush=True)
+
+    # ---- OR refinement: the actual reconstruction hot path ---------------
+    print("\n=== refine_or_cost (84% of a reconstruction before it was fixed) ===")
+    from pagb_reconstruction.utils.math_ops import MisorientationOps
+
+    variants = unit_quats(24, 31)
+    for n in (250, 500):
+        qi, qj = unit_quats(n, 32), unit_quats(n, 33)
+        got_nb, t_nb = timed(MisorientationOps.refine_or_cost, qi, qj, variants, sym)
+        line = f"  pairs={n:>4}  numba {t_nb:7.3f}s"
+        if HAVE_RUST:
+            got_rs, t_rs = timed(pagb_rust.refine_or_cost, qi, qj, variants, sym)
+            assert abs(got_rs - got_nb) < 1e-3, f"RUST DISAGREES: {got_rs} vs {got_nb}"
+            line += f"   rust {t_rs:7.3f}s   (rust vs numba {t_nb / t_rs:5.1f}x)"
         print(line, flush=True)
 
     print("\nAll backends agree with the numpy reference.")

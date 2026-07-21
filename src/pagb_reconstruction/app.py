@@ -22,6 +22,12 @@ def main():
 
         print(f"compute_backend: {Quaternions.__name__}")
         try:
+            import pagb_kernels  # noqa: F401
+
+            print("rust_kernels: present")
+        except ImportError:
+            print("rust_kernels: absent")
+        try:
             from numba import cuda
 
             print(f"driver_sees_gpu: {cuda.is_available()}")

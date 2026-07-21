@@ -103,10 +103,73 @@ fn pairwise_below<'py>(
     Ok(out.into_pyarray(py))
 }
 
+
+/// Mean best-angle over neighbouring grain pairs — the OR refinement cost.
+///
+/// This is the reconstruction's real hot path: Nelder-Mead calls it ~180 times,
+/// and each call is pairs x variants x variants x symmetry operators.
+#[pyfunction]
+fn refine_or_cost<'py>(
+    py: Python<'py>,
+    pair_qi: PyReadonlyArray2<'py, f64>,
+    pair_qj: PyReadonlyArray2<'py, f64>,
+    variants: PyReadonlyArray2<'py, f64>,
+    sym: PyReadonlyArray2<'py, f64>,
+) -> PyResult<f64> {
+    let qi = pair_qi.as_array();
+    let qj = pair_qj.as_array();
+    let v = variants.as_array();
+    let s = sym.as_array();
+    let n_pairs = qi.nrows();
+    if n_pairs == 0 {
+        return Ok(0.0);
+    }
+    let n_var = v.nrows();
+
+    let total: f64 = py.allow_threads(|| {
+        (0..n_pairs)
+            .into_par_iter()
+            .map(|p| {
+                let a = [qi[[p, 0]], qi[[p, 1]], qi[[p, 2]], qi[[p, 3]]];
+                let b = [qj[[p, 0]], qj[[p, 1]], qj[[p, 2]], qj[[p, 3]]];
+                let mut best = f64::MAX;
+                for iv in 0..n_var {
+                    // candidate parent of a for variant iv: a * conj(v[iv])
+                    let cw = v[[iv, 0]];
+                    let (cx, cy, cz) = (-v[[iv, 1]], -v[[iv, 2]], -v[[iv, 3]]);
+                    let pi = [
+                        a[0] * cw - a[1] * cx - a[2] * cy - a[3] * cz,
+                        a[0] * cx + a[1] * cw + a[2] * cz - a[3] * cy,
+                        a[0] * cy - a[1] * cz + a[2] * cw + a[3] * cx,
+                        a[0] * cz + a[1] * cy - a[2] * cx + a[3] * cw,
+                    ];
+                    for jv in 0..n_var {
+                        let dw = v[[jv, 0]];
+                        let (dx, dy, dz) = (-v[[jv, 1]], -v[[jv, 2]], -v[[jv, 3]]);
+                        let pj = [
+                            b[0] * dw - b[1] * dx - b[2] * dy - b[3] * dz,
+                            b[0] * dx + b[1] * dw + b[2] * dz - b[3] * dy,
+                            b[0] * dy - b[1] * dz + b[2] * dw + b[3] * dx,
+                            b[0] * dz + b[1] * dy - b[2] * dx + b[3] * dw,
+                        ];
+                        let ang = disorientation(&pi, &pj, &s);
+                        if ang < best {
+                            best = ang;
+                        }
+                    }
+                }
+                best
+            })
+            .sum()
+    });
+    Ok(total / n_pairs as f64)
+}
+
 #[pymodule]
-fn pagb_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn pagb_kernels(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(disorientation_deg, m)?)?;
     m.add_function(wrap_pyfunction!(pairwise_below, m)?)?;
+    m.add_function(wrap_pyfunction!(refine_or_cost, m)?)?;
     Ok(())
 }
 

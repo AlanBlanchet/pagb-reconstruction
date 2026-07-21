@@ -18,6 +18,13 @@ import numpy as np
 
 from pagb_reconstruction.utils import quaternion_kernels
 
+try:  # compiled Rust kernels; optional, selected automatically when present
+    import pagb_kernels as _rust
+
+    _HAS_RUST = True
+except ImportError:
+    _HAS_RUST = False
+
 _SQRT2 = float(np.sqrt(2.0))
 
 
@@ -178,8 +185,32 @@ class _NumbaQuaternions:
         )
 
 
-Quaternions = (
-    _NumpyQuaternions
-    if os.environ.get("PAGB_DEVICE", "").strip().lower() == "cpu"
-    else _NumbaQuaternions
-)
+class _RustQuaternions(_NumbaQuaternions):
+    """Compiled Rust kernels where they measured faster, numba for the rest.
+
+    Only the operations Rust actually wins are overridden. On this hardware the
+    O(N^2) pairwise comparison runs ~8x faster than the CUDA kernel, because it
+    is launch/bandwidth-bound rather than FLOP-bound and Rust never materialises
+    the (N, N, 24) intermediate.
+    """
+
+    device = "cpu (rust)"
+
+    @classmethod
+    def pairwise_below(cls, quats, sym_quats, threshold_deg: float) -> np.ndarray:
+        return _rust.pairwise_below(
+            np.ascontiguousarray(quats, dtype=np.float64),
+            np.ascontiguousarray(sym_quats, dtype=np.float64),
+            float(threshold_deg),
+        )
+
+
+def _select_backend():
+    if os.environ.get("PAGB_DEVICE", "").strip().lower() == "cpu":
+        return _NumpyQuaternions
+    if _HAS_RUST:
+        return _RustQuaternions
+    return _NumbaQuaternions
+
+
+Quaternions = _select_backend()

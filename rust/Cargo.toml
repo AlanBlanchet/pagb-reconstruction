@@ -1,10 +1,10 @@
 [package]
-name = "pagb_rust"
+name = "pagb_kernels"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "pagb_rust"
+name = "pagb_kernels"
 crate-type = ["cdylib"]
 
 [dependencies]

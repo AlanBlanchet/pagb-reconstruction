@@ -7,6 +7,9 @@ datas = copy_metadata('pagb-reconstruction')
 binaries = []
 hidden = [
     "pagb_reconstruction",
+    # compiled Rust kernels (rust/); imported lazily in utils/compute.py, so
+    # PyInstaller needs telling
+    "pagb_kernels",
     "networkx", "packaging",
     "matplotlib.backends.backend_agg",
     "matplotlib.backends.backend_qtagg",
