@@ -33,20 +33,46 @@ def test_reset_layout_restores_hidden_docks(qtbot):
         assert not dock.isHidden(), f"{name} still closed after reset_layout"
 
 
-def test_dock_tabs_overflow_instead_of_vanishing(qtbot):
-    """Tabbed docks must scroll, not silently drop tabs under width pressure."""
-    from PySide6.QtCore import Qt
+def test_dock_tabs_actually_fit_their_bar(qtbot):
+    """Every dock tab must FIT — not merely be flagged scrollable.
+
+    Qt does not render scroll arrows for QMainWindow-tabified docks in this
+    style, so an overflowing tab is simply unreachable: "Info" was cut to zero
+    characters at the default 320px right dock. Asserting usesScrollButtons() was
+    verifying a flag Qt then ignored; assert the geometry instead.
+    """
     from PySide6.QtWidgets import QTabBar
 
     from pagb_reconstruction.ui.main_window import MainWindow
 
     w = MainWindow()
     qtbot.addWidget(w)
-    bars = w.findChildren(QTabBar)
-    assert bars, "expected tabified docks"
-    for bar in bars:
-        assert bar.usesScrollButtons(), "tab bar drops tabs instead of scrolling"
-        assert bar.elideMode() == Qt.TextElideMode.ElideNone
+    w.resize(1600, 1000)
+    w.show()
+    qtbot.waitExposed(w)
+    # Dock areas are laid out over several passes; measure once settled.
+    qtbot.wait(200)
+
+    # Qt leaves stale tab bars behind after re-tabifying — several report
+    # isVisible() at the same position with different tab sets. Group by tab set
+    # and judge the real (widest) bar for each: if that one fits, the user can
+    # reach every tab.
+    widest: dict[tuple, QTabBar] = {}
+    for bar in w.findChildren(QTabBar):
+        if not bar.count() or not bar.isVisible():
+            continue
+        key = tuple(bar.tabText(i) for i in range(bar.count()))
+        if key not in widest or bar.width() > widest[key].width():
+            widest[key] = bar
+    assert widest, "expected tabified docks"
+
+    for labels, bar in widest.items():
+        needed = sum(bar.tabSizeHint(i).width() for i in range(bar.count()))
+        assert needed <= bar.width(), (
+            f"tabs {list(labels)} need {needed}px in a {bar.width()}px bar — "
+            f"{needed - bar.width()}px overflows and is unreachable, and Qt draws "
+            "no scroll arrows for QMainWindow-tabified docks"
+        )
 
 
 def test_viewport_adapts_to_map_aspect(qtbot):

@@ -51,6 +51,7 @@ from pagb_reconstruction.ui.widgets.parent_review import ParentReviewPanel
 from pagb_reconstruction.ui.widgets.pole_figure import PoleFigureWidget
 from pagb_reconstruction.ui.widgets.reconstruction_panel import ReconstructionPanel
 from pagb_reconstruction.ui.widgets.stats_dashboard import StatsDashboard
+from pagb_reconstruction.ui.widgets.summary_panel import SummaryPanel
 from pagb_reconstruction.ui.widgets.task_manager import TaskManager
 from pagb_reconstruction.ui.widgets.update_bar import UpdateBar
 
@@ -105,6 +106,7 @@ class MainWindow(QMainWindow):
         self._or_panel = ORPanel()
         self._reconstruction_panel = ReconstructionPanel()
         self._stats_dashboard = StatsDashboard()
+        self._summary_panel = SummaryPanel()
         self._pole_figure = PoleFigureWidget()
         self._parent_review = ParentReviewPanel()
         self._misorientation_panel = MisorientationPanel()
@@ -201,6 +203,12 @@ class MainWindow(QMainWindow):
             Qt.DockWidgetArea.BottomDockWidgetArea,
             bottom_min,
         )
+        dock_summary = self._add_dock(
+            "Summary",
+            self._summary_panel,
+            Qt.DockWidgetArea.BottomDockWidgetArea,
+            bottom_min,
+        )
         dock_misor = self._add_dock(
             "Misorientation",
             self._misorientation_panel,
@@ -215,7 +223,8 @@ class MainWindow(QMainWindow):
         )
 
         self.tabifyDockWidget(dock_recon, dock_stats)
-        self.tabifyDockWidget(dock_stats, dock_pole)
+        self.tabifyDockWidget(dock_stats, dock_summary)
+        self.tabifyDockWidget(dock_summary, dock_pole)
         self.tabifyDockWidget(dock_pole, dock_misor)
         self.tabifyDockWidget(dock_misor, dock_parents)
         self.tabifyDockWidget(dock_parents, dock_log)
@@ -223,7 +232,8 @@ class MainWindow(QMainWindow):
         self._make_dock_tabs_scrollable()
 
         self._bottom_docks = [
-            dock_recon, dock_stats, dock_pole, dock_misor, dock_parents, dock_log,
+            dock_recon, dock_stats, dock_summary, dock_pole, dock_misor,
+            dock_parents, dock_log,
         ]
         self._right_dock = dock_params
 
@@ -235,6 +245,7 @@ class MainWindow(QMainWindow):
             "Reconstruction": dock_recon,
             "Statistics": dock_stats,
             "Poles": dock_pole,
+            "Summary": dock_summary,
             "Misorientation": dock_misor,
             "Parents": dock_parents,
             "Log": dock_log,
@@ -874,6 +885,7 @@ class MainWindow(QMainWindow):
         self._map_viewer.set_reconstruction_result(result)
         self._parent_review.set_result(result)
         self._stats_dashboard.update_stats(result, self._ebsd_map, elapsed=elapsed)
+        self._summary_panel.update_stats(result, self._ebsd_map, elapsed=elapsed)
         if result.optimized_or is not None:
             self._or_panel.set_optimized_or(result.optimized_or)
         self._pole_figure.set_orientations(result.parent_orientations)

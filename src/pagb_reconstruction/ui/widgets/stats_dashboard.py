@@ -3,20 +3,14 @@ import pyqtgraph as pg
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
-    QFrame,
     QGridLayout,
-    QGroupBox,
-    QHBoxLayout,
     QLabel,
-    QPushButton,
-    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from pagb_reconstruction.core.ebsd_map import EBSDMap
-from pagb_reconstruction.core.grain_metrics import GrainMetrics
 from pagb_reconstruction.core.reconstruction import ReconstructionResult
 from pagb_reconstruction.ui.plotting import StyledPlot
 from pagb_reconstruction.ui.theme import active_theme
@@ -102,53 +96,11 @@ class StatsDashboard(QWidget):
         super().__init__()
         self._ebsd_map: EBSDMap | None = None
         self._result: ReconstructionResult | None = None
-        self._grain_metrics = GrainMetrics()
         self._setup_ui()
 
     def _setup_ui(self):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        outer.addWidget(scroll)
-        inner = QWidget()
-        scroll.setWidget(inner)
-        layout = QVBoxLayout(inner)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(6)
-
-        cards_row = QHBoxLayout()
-        cards_row.setSpacing(6)
-        self._card_parents = StatCard("Parents")
-        self._card_coarsening = StatCard("Coarsening")
-        self._card_fit = StatCard("Mean Fit")
-        self._card_recon = StatCard("% Recon")
-        self._card_time = StatCard("Time")
-        cards_row.addWidget(self._card_parents)
-        cards_row.addWidget(self._card_coarsening)
-        cards_row.addWidget(self._card_fit)
-        cards_row.addWidget(self._card_recon)
-        cards_row.addWidget(self._card_time)
-        cards_row.addStretch()
-        layout.addLayout(cards_row)
-
-        metrics_group = QGroupBox("Grain Size Measurement")
-        metrics_group.setMaximumWidth(620)
-        metrics_layout = QVBoxLayout(metrics_group)
-        self._metrics_form = self._grain_metrics.to_widget()
-        metrics_layout.addWidget(self._metrics_form)
-        btn_row = QHBoxLayout()
-        self._measure_btn = QPushButton("Measure")
-        self._measure_btn.clicked.connect(self._run_measurement)
-        self._measure_btn.setEnabled(False)
-        btn_row.addWidget(self._measure_btn)
-        btn_row.addStretch()
-        metrics_layout.addLayout(btn_row)
-        self._metrics_label = QLabel("")
-        self._metrics_label.setWordWrap(True)
-        metrics_layout.addWidget(self._metrics_label)
-        layout.addWidget(metrics_group)
+        outer.setContentsMargins(4, 4, 4, 4)
 
         self._chart_grid = QGridLayout()
         self._chart_grid.setSpacing(4)
@@ -158,7 +110,8 @@ class StatsDashboard(QWidget):
         self._chart_variants = ChartWidget("Variants", "Variant ID", "Pixels")
         self._chart_fit = ChartWidget("Fit Angles", "Fit (\u00b0)", "Count")
 
-        # One row, not 2x2: the dock has width to spare and no height to spare.
+        # One row, not 2x2: the bottom dock has width to spare and no height to
+        # spare. Nothing else shares this panel, so the row cannot be starved.
         for col, chart in enumerate(
             (
                 self._chart_grain_size,
@@ -168,7 +121,7 @@ class StatsDashboard(QWidget):
             )
         ):
             self._chart_grid.addWidget(chart, 0, col)
-        layout.addLayout(self._chart_grid, 1)
+        outer.addLayout(self._chart_grid, 1)
 
     def update_stats(
         self,
@@ -178,27 +131,11 @@ class StatsDashboard(QWidget):
     ):
         self._result = result
         self._ebsd_map = ebsd_map
-        self._measure_btn.setEnabled(result is not None)
 
         p = active_theme()
         parent_ids = result.parent_grain_ids
         unique_parents = np.unique(parent_ids[parent_ids >= 0])
-        n_parents = len(unique_parents)
-
         fit_valid = result.fit_angles[~np.isnan(result.fit_angles)]
-        mean_fit = float(np.mean(fit_valid)) if len(fit_valid) > 0 else 0.0
-        pct_recon = float(np.sum(parent_ids >= 0) / max(len(parent_ids), 1) * 100)
-
-        self._card_parents.set_value(str(n_parents))
-        n_child = len(ebsd_map.grains) if ebsd_map and ebsd_map.grains else 0
-        self._card_coarsening.set_value(
-            f"{n_child / n_parents:.1f}x" if n_parents and n_child else "-"
-        )
-        self._card_fit.set_value(f"{mean_fit:.2f}\u00b0")
-        self._card_recon.set_value(f"{pct_recon:.1f}%")
-        self._card_time.set_value(f"{elapsed:.1f}s" if elapsed > 0 else "-")
-
-        self._run_measurement()
 
         sizes = np.array([int(np.sum(parent_ids == pid)) for pid in unique_parents])
         self._plot_grain_size(sizes, p)
@@ -206,23 +143,6 @@ class StatsDashboard(QWidget):
         self._plot_misorientation(misori, p)
         self._plot_variants(result, p)
         self._plot_fit_angles(fit_valid, p)
-
-    def _run_measurement(self):
-        if self._result is None or self._ebsd_map is None:
-            return
-        self._grain_metrics = self._metrics_form.to_model()
-        # _to_grid, not reshape: on a hexagonal scan the measured points do not
-        # fill the grid, so reshape raises and Qt swallows it (issue #11,
-        # "l'outil measure ne marche pas").
-        grain_map = self._ebsd_map._to_grid(self._result.parent_grain_ids, fill=-1)
-        step = float(self._ebsd_map.step_size[0])
-        gr = self._grain_metrics.measure(grain_map, step_size=step)
-        self._metrics_label.setText(
-            f"Mean intercept: {gr.mean_intercept_um:.2f} \u00b5m\n"
-            f"ASTM grain size #: {gr.astm_grain_size_number:.1f}\n"
-            f"Grain count: {gr.grain_count}\n"
-            f"Method: {gr.method}"
-        )
 
     def _plot_grain_size(self, sizes: np.ndarray, p):
         self._chart_grain_size.clear()

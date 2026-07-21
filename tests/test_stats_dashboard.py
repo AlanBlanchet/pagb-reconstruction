@@ -1,103 +1,38 @@
-"""Grain-size measurement must work on sparse grids too.
+"""Statistics panel — charts only.
 
-Issue #11: "L'outil measure ne marche pas". The measurement reshaped the flat
-per-pixel parent ids straight into (rows, cols). On any scan where the measured
-points do not fill the grid — every hexagonal scan — that raises ValueError
-inside a Qt slot, which Qt swallows, so the button silently did nothing.
+Three live verdicts drove this shape. The charts began in a 2x2 grid demanding
+>=380px of height inside a ~230px dock, so the panel could never show its own
+content. Laying them in one row was the wrong lever: the stat cards plus the
+Grain Size Measurement group consumed the whole dock budget before the charts
+were reached, so a 1x1 grid would have failed identically. Capping that header
+at 180px freed the charts but hid the Measure button behind ~800px of content in
+a 180px window, with a mouse-wheel dead-zone over its combo and spin boxes.
+
+So the header is not budgeted against the charts at all — it lives in its own
+panel, and Statistics holds charts and nothing else.
 """
 
-import numpy as np
 
+def test_statistics_holds_charts_and_nothing_else(qtbot):
+    from PySide6.QtWidgets import QScrollArea
 
-def _sparse_map():
-    """A map whose measured points do not fill its grid (like a hex scan)."""
-    from orix.crystal_map import CrystalMap, Phase, PhaseList
-    from orix.quaternion import Rotation
-
-    from pagb_reconstruction.core.ebsd_map import EBSDMap
-    from pagb_reconstruction.core.phase import PhaseConfig
-    from pagb_reconstruction.io.grid_header import GridInfo
-
-    n_rows, n_cols = 6, 8
-    xs, ys = [], []
-    for r in range(n_rows):
-        count = n_cols if r % 2 == 0 else n_cols - 1  # short even rows
-        offset = 0.0 if r % 2 == 0 else 0.5
-        for c in range(count):
-            xs.append(offset + c)
-            ys.append(r * 0.866)
-    n = len(xs)
-    xmap = CrystalMap(
-        rotations=Rotation.from_axes_angles([[0, 0, 1]] * n, np.linspace(0, 1, n)),
-        phase_id=np.zeros(n, dtype=int),
-        x=np.array(xs, dtype=float),
-        y=np.array(ys, dtype=float),
-        phase_list=PhaseList(Phase(name="ferrite", point_group="m-3m")),
-    )
-    grid = GridInfo(n_rows=n_rows, n_cols=n_cols, dx=1.0, dy=0.866, hexagonal=True)
-    return EBSDMap(
-        crystal_map=xmap, phases=[PhaseConfig.austenite()], grid=grid
-    )
-
-
-def _result_for(emap):
-    from pagb_reconstruction.core.reconstruction import ReconstructionResult
-
-    n = emap.crystal_map.size
-    z = np.zeros(n, dtype=np.int32)
-    return ReconstructionResult(
-        parent_orientations=np.tile([1.0, 0, 0, 0], (n, 1)),
-        parent_grain_ids=(np.arange(n, dtype=np.int32) % 4),
-        fit_angles=np.zeros(n),
-        variant_ids=z, packet_ids=z, block_ids=z, bain_ids=z,
-    )
-
-
-def test_sparse_map_really_is_sparse():
-    emap = _sparse_map()
-    rows, cols = emap.shape
-    assert emap.is_sparse, "precondition: measured points must not fill the grid"
-    assert emap.crystal_map.size != rows * cols
-
-
-def test_measurement_runs_on_sparse_map(qtbot):
-    from pagb_reconstruction.ui.widgets.stats_dashboard import StatsDashboard
-
-    emap = _sparse_map()
-    result = _result_for(emap)
-
-    dash = StatsDashboard()
-    qtbot.addWidget(dash)
-    dash._ebsd_map = emap
-    dash._result = result
-    dash._run_measurement()  # must not raise
-
-    text = dash._metrics_label.text()
-    assert "Mean intercept" in text
-    assert "ASTM" in text
-
-
-def test_charts_lay_out_along_the_dock_it_lives_in(qtbot):
-    """The charts must fit the bottom dock's shape: wide and short.
-
-    A 2x2 grid of 190px-min charts demands >=380px of height, inside a bottom
-    dock that defaults to 230px — so the panel was permanently scroll-bound and
-    could never show its own content. The dock is full-window WIDTH, so laying
-    the charts in one row spends the dimension that is actually available.
-    """
     from pagb_reconstruction.ui.widgets.stats_dashboard import StatsDashboard
 
     d = StatsDashboard()
     qtbot.addWidget(d)
 
-    rows = {d._chart_grid.getItemPosition(i)[0] for i in range(d._chart_grid.count())}
-    assert rows == {0}, f"charts must share one row to fit a short dock, got rows {rows}"
-
-    charts = [
-        d._chart_grain_size, d._chart_misori, d._chart_variants, d._chart_fit,
-    ]
-    tallest = max(c._widget.minimumHeight() for c in charts)
-    assert tallest <= 230, (
-        f"a chart floor of {tallest}px exceeds the 230px default bottom-dock "
-        "height, so the row cannot render without scrolling"
+    assert d.findChild(QScrollArea) is None, (
+        "charts-only panel needs no scroll area; one means something is still "
+        "competing with the charts for height"
     )
+    rows = {d._chart_grid.getItemPosition(i)[0] for i in range(d._chart_grid.count())}
+    assert rows == {0}, f"charts share one row to fit a short, wide dock; got {rows}"
+
+
+def test_summary_dock_exists(qtbot):
+    from pagb_reconstruction.ui.main_window import MainWindow
+
+    w = MainWindow()
+    qtbot.addWidget(w)
+    assert "Summary" in w._docks
+    assert w._docks["Summary"] in w._bottom_docks

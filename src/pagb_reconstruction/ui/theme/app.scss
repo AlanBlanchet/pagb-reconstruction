@@ -339,9 +339,11 @@ QLabel#computingOverlay {
   border-radius: 8px;
 }
 
-/* A readable floor: below this Qt was shrinking labels to nothing.
-   With expanding off, exceeding the bar width now scrolls instead. */
-QMainWindow > QTabBar::tab { min-width: 76px; padding-left: 10px; padding-right: 10px; }
+/* Dock tabs must FIT, because Qt does not render scroll arrows for
+   QMainWindow-tabified docks in this style — an overflowing tab is simply
+   unreachable. Four right-dock tabs must fit the 320px default: a 76px floor
+   plus 20px padding needed 406px, which cut "Info" off entirely. */
+QMainWindow > QTabBar::tab { min-width: 52px; padding-left: 6px; padding-right: 6px; }
 QLabel#categoryLegend {
   background: $surface_dim;
   color: $fg;
