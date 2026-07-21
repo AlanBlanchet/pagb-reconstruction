@@ -329,7 +329,9 @@ QLabel#mapPlaceholder {
   margin: 40px;
 }
 QLabel#computingOverlay {
-  background: rgba(0, 0, 0, 0.66);
+  /* Near-opaque: at 0.66 the multicolour map bled through and measured
+     1-2:1 contrast against the text, far under the 4.5:1 readable floor. */
+  background: rgba(0, 0, 0, 0.94);
   color: $accent;
   font-size: 14px;
   font-weight: 600;

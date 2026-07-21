@@ -46,7 +46,7 @@ def test_dock_tabs_overflow_instead_of_vanishing(qtbot):
     assert bars, "expected tabified docks"
     for bar in bars:
         assert bar.usesScrollButtons(), "tab bar drops tabs instead of scrolling"
-        assert bar.elideMode() == Qt.TextElideMode.ElideRight
+        assert bar.elideMode() == Qt.TextElideMode.ElideNone
 
 
 def test_viewport_adapts_to_map_aspect(qtbot):

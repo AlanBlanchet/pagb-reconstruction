@@ -131,10 +131,6 @@ class MapViewer(QWidget):
         self._colorbar_plot.hideAxis("bottom")
         self._colorbar_plot.setMaximumWidth(84)
         self._colorbar_plot.setMouseEnabled(x=False, y=False)
-        self._colorbar_label_min = pg.TextItem("", anchor=(0.5, 0))
-        self._colorbar_label_max = pg.TextItem("", anchor=(0.5, 1))
-        self._colorbar_plot.addItem(self._colorbar_label_min)
-        self._colorbar_plot.addItem(self._colorbar_label_max)
         self._colorbar_plot.setVisible(False)
 
         # IPF colour-key triangle, shown beside the map for orientation maps
@@ -582,8 +578,6 @@ class MapViewer(QWidget):
         # Place the bar over the REAL data range so the left axis reads in data
         # units (not the 0-256 LUT row index).
         self._colorbar_item.setRect(0, vmin, 1, vmax - vmin)
-        self._colorbar_label_min.setText("")
-        self._colorbar_label_max.setText("")
         # Units on the vertical axis label (won't clip like a narrow title).
         self._colorbar_plot.setLabel(
             "left", meta.name if meta else "value", units=meta.unit if meta else None
@@ -815,19 +809,6 @@ class MapViewer(QWidget):
         plot_widget.plot(distances, angles, pen=pg.mkPen(p.accent, width=2))
         layout.addWidget(plot_widget)
         dialog.show()
-
-    def toggle_split_mode(self):
-        self._split_mode = not self._split_mode
-        self._split_plot.setVisible(self._split_mode)
-        if self._split_mode:
-            self._split_plot.setXLink(self._plot)
-            self._split_plot.setYLink(self._plot)
-            self._split_combo.setVisible(True)
-            self._update_split_display()
-        else:
-            self._split_plot.setXLink(None)
-            self._split_plot.setYLink(None)
-            self._split_combo.setVisible(False)
 
     def set_split_visible(self, visible: bool):
         self._split_mode = visible

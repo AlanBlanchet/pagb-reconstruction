@@ -79,14 +79,15 @@ class ORPanel(QWidget):
         self._hist_plot.setLabel("bottom", "Angle", units="\u00b0")
         self._hist_plot.setLabel("left", "Count")
         self._hist_plot.showGrid(x=True, y=True, alpha=0.2)
-        self._hist_plot.setMinimumHeight(150)
+        self._hist_plot.setMinimumHeight(220)
+        self._hist_plot.addLegend(offset=(-8, 8), labelTextColor=active_theme().fg)
         hist_layout.addWidget(self._hist_plot)
-        layout.addWidget(self._histogram_group)
+        # The histogram absorbs the panel's spare height. A trailing addStretch()
+        # here would claim it instead and letterbox the plot.
+        layout.addWidget(self._histogram_group, 1)
 
         self._peak_lines: list[pg.InfiniteLine] = []
         self._ebsd_map_ref = None
-
-        layout.addStretch()
         self._update_detail()
 
     def _on_or_changed(self, name: str):
@@ -147,6 +148,9 @@ class ORPanel(QWidget):
     def _update_histogram(self):
         self._hist_plot.clear()
         self._peak_lines.clear()
+        legend = self._hist_plot.plotItem.legend
+        if legend is not None:
+            legend.clear()
 
         p = active_theme()
         if self._ebsd_map_ref is not None:
@@ -160,6 +164,7 @@ class ORPanel(QWidget):
                 pen=pg.mkPen(p.accent, width=1.5),
                 fillLevel=0,
                 fillBrush=p.rgb("accent") + (50,),
+                name="Measured misorientations",
             )
 
         name = self._or_combo.currentText()
@@ -167,14 +172,16 @@ class ORPanel(QWidget):
             or_obj = OrientationRelationship.from_preset(name)
             peak_angles = or_obj.theoretical_misorientations()
             unique_peaks = np.unique(np.round(peak_angles, 1))
+            peak_pen = pg.mkPen(p.warning, width=1.5, style=Qt.PenStyle.DashLine)
             for angle in unique_peaks:
-                line = pg.InfiniteLine(
-                    pos=angle,
-                    angle=90,
-                    pen=pg.mkPen(p.warning, width=1.5, style=Qt.PenStyle.DashLine),
-                )
+                line = pg.InfiniteLine(pos=angle, angle=90, pen=peak_pen)
                 self._hist_plot.addItem(line)
                 self._peak_lines.append(line)
+            if legend is not None and self._peak_lines:
+                # One entry for the whole dashed family, not one per peak.
+                legend.addItem(
+                    pg.PlotDataItem(pen=peak_pen), f"Theoretical {name} peaks"
+                )
 
     def set_optimized_or(self, or_instance) -> None:
         if or_instance is None:

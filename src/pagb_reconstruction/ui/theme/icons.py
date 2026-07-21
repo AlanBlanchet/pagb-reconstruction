@@ -28,6 +28,7 @@ _REGISTRY: dict[str, str] = {
     "split": "ph.columns",
     "line_profile": "ph.chart-line",
     "roi": "ph.selection",
+    "reset_layout": "ph.layout",
     "clear_roi": "ph.selection-slash",
     "reset": "ph.arrow-counter-clockwise",
     "add": "ph.plus",

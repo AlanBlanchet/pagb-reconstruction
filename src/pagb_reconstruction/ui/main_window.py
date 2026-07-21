@@ -3,7 +3,6 @@ import platform
 import sys
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import quote
 
 import numpy as np
 import orix
@@ -36,7 +35,7 @@ from pagb_reconstruction.core.fit_metrics import reconstruction_quality
 from pagb_reconstruction.utils.compute import Quaternions
 from pagb_reconstruction.core.reconstruction import ReconstructionConfig
 from pagb_reconstruction.core.updater import UpdateChecker
-from pagb_reconstruction.utils import logging_setup
+from pagb_reconstruction.utils import bug_report, logging_setup
 from pagb_reconstruction.io.base import load_ebsd
 from pagb_reconstruction.io.figure_export import export_map_figure
 from pagb_reconstruction.io.reconstruction_export import ReconstructionExporter
@@ -68,6 +67,9 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
         self._setup_ui()
         self._restore_state()
+        # Restoring a saved layout re-tabifies the docks, and Qt builds NEW tab
+        # bars for it — so the setting has to be re-applied afterwards.
+        self._make_dock_tabs_scrollable()
         if not self._settings.contains("window_geometry"):
             self.showMaximized()
 
@@ -263,7 +265,10 @@ class MainWindow(QMainWindow):
 
         for bar in self.findChildren(QTabBar):
             bar.setUsesScrollButtons(True)
-            bar.setElideMode(Qt.TextElideMode.ElideRight)
+            # ElideRight lets Qt shrink a tab label to zero characters, which is
+            # how tabs "vanished". ElideNone forces it to keep the tab's width
+            # and show scroll arrows instead.
+            bar.setElideMode(Qt.TextElideMode.ElideNone)
 
     def reset_layout(self):
         """Restore every panel and the default arrangement.
@@ -348,6 +353,12 @@ class MainWindow(QMainWindow):
             action = dock.toggleViewAction()
             action.setText(name)
             view_menu.addAction(action)
+
+        view_menu.addSeparator()
+        _reset_layout_menu = QAction("Reset &Layout", self)
+        _reset_layout_menu.setToolTip("Restore all panels and the default arrangement")
+        _reset_layout_menu.triggered.connect(self.reset_layout)
+        view_menu.addAction(_reset_layout_menu)
 
         view_menu.addSeparator()
         workspace_menu = view_menu.addMenu("Workspace")
@@ -523,11 +534,13 @@ class MainWindow(QMainWindow):
         reset_action.setToolTip("Reset all views and selections")
         reset_action.triggered.connect(self._reset)
 
-        reset_layout_action = QAction(icon("reset"), "Reset Layout", self)
+        reset_layout_action = QAction(icon("reset_layout"), "Reset Layout", self)
         reset_layout_action.setToolTip("Restore all panels and the default arrangement")
         reset_layout_action.triggered.connect(self.reset_layout)
         toolbar.addAction(reset_layout_action)
         toolbar.addAction(reset_action)
+        # Icon-only toolbars make an action hard to find; also expose it by NAME.
+        self._reset_layout_action = reset_layout_action
 
         for i in range(1, 10):
             shortcut = QShortcut(QKeySequence(str(i)), self)
@@ -785,6 +798,13 @@ class MainWindow(QMainWindow):
     def _on_reconstruction_done(self, result):
         if result is not None:
             apply_profile(self, PROFILES["Analyze"])
+            self._make_dock_tabs_scrollable()
+            # The profile resizes the docks; re-assert the canvas share or the
+            # map collapses exactly when the user most wants to see it.
+            if self._ebsd_map is not None:
+                rows, cols = self._ebsd_map.shape
+                if rows:
+                    self._fit_layout_to_map_aspect(cols / rows)
         self._progress_bar.setVisible(False)
         self._result = result
         if result is None:
@@ -1040,11 +1060,12 @@ class MainWindow(QMainWindow):
             f"- Compute: {Quaternions.__name__} ({getattr(Quaternions, 'device', '?')})\n"
             "\n**Recent log**\n"
             f"<!-- full log: {logging_setup.log_file_path()} -->\n"
-            "```\n" + logging_setup.tail(60) + "\n```\n"
+            "```\n{log}\n```\n"
         )
-        url = (
-            "https://github.com/AlanBlanchet/pagb-reconstruction/issues/new"
-            f"?title=&body={quote(body)}"
+        url = bug_report.issue_url(
+            "https://github.com/AlanBlanchet/pagb-reconstruction/issues/new",
+            body,
+            logging_setup.tail(60),
         )
         QDesktopServices.openUrl(QUrl(url))
 

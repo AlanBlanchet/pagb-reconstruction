@@ -52,6 +52,8 @@ PROFILES: dict[str, WorkspaceProfile] = {
 
 
 def apply_profile(window, profile: WorkspaceProfile) -> None:
+    """Apply a workspace layout. Re-applies tab-bar settings afterwards: Qt
+    rebuilds tab bars when docks are re-tabified, losing them otherwise."""
     """Arrange *window*'s docks to match *profile*."""
     from PySide6.QtCore import Qt
 
@@ -73,3 +75,7 @@ def apply_profile(window, profile: WorkspaceProfile) -> None:
                 [window._docks[first_right]], [profile.right_width],
                 Qt.Orientation.Horizontal,
             )
+
+    fixup = getattr(window, "_make_dock_tabs_scrollable", None)
+    if callable(fixup):
+        fixup()
