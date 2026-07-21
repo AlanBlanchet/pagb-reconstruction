@@ -17,3 +17,7 @@ dist-test/
 
 # Dev/visual-critic capture output (never ship in releases)
 .github/audit/
+
+# Rust prototype build output
+rust_test/target/
+.sweep-log/
