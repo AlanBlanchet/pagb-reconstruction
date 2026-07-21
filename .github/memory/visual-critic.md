@@ -32,7 +32,7 @@ ASTM now log10 (8.9, physical); result auto-switches to Parent+Boundaries; color
 - Launch that works in this harness: the `run_in_background:true` Bash tool with `exec env DISPLAY=:77 LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe QT_QPA_PLATFORM=xcb uv run pagb <abs-path>` — the task IS the app and survives (nohup/& dies). Kept-alive Xephyr :77 same way.
 - Combo: popup renders BLACK in xwd + type-ahead unreliable. Open combo, find override-redirect popup (`xwininfo -root -children | grep '"pagb"'`, width<300 height>200, geom moves +919+33 pre-recon → +919+0 post), mousemove over it, Home + N Down (arrows skip separators). Post-recon order: Phase0 IPF-Z1 IPF-X2 IPF-Y3 Euler4 GrainID5 CSL6 BandContrast7 KAM8 GOS9 GAM10 Misor11 GROD12 ParentGrainID13 VariantID14 FitQuality15 FitAngle16 Packet17 Block18 ParentIPF19.
 - Fixture truth: SDSS .ang duplex → Variant/Packet/Block ~97% id=0 (uniform blue is CORRECT, not a bug). Use data/martensite_roomtemp.ctf to see real categorical + parent structure. tab20 id0 = rgb(31,119,180).
-- Martensite (334k px) reconstruction ≈ 18.5 MIN (variant clustering ~5min + merge inclusions ~3min; progress bar frozen mid-step → looks hung but isn't). Parent IPF on-demand compute ~2min. Detect done via green progress pixel srgb(166,227,161), not CPU (never drops below ~100%).
+- ~~Martensite (334k px) reconstruction ≈ 18.5 MIN~~ **STALE — superseded 2026-07-21: now ~12s** (see the 2026-07-21 entry). Parent IPF on-demand compute ~2min. Detect done via green progress pixel srgb(166,227,161), not CPU (never drops below ~100%).
 - VERIFIED PASS: IPF key triangle present + LABELLED ([001]/[101]/[111]/m-3m) for IPF-X/Y/Z + Parent IPF, hidden for Phase/KAM/Fit Angle; categorical maps distinct per-id colours, no continuous colorbar. IPF key now width 110 + "IPF ∥ axis" caption (was stealing ~10% map width).
 - STILL OPEN: categorical discrete SWATCH legend (colour→id number) — map_viewer.py comment; reconstruction performance on large maps (18.5min); CPU idle leak.
 
@@ -62,3 +62,31 @@ ASTM now log10 (8.9, physical); result auto-switches to Parent+Boundaries; color
 - FIXED this turn: (a) ParamPanel.set_config didn't sync the preset segmented tab → applying a Compare winner left "Default" highlighted, a click silently reset values (param_panel.py set_current + match). (b) enabled outline QPushButton used $border ≈ disabled $surface → read as disabled; bumped default border to $border_strong, bg $elevated.
 - OPEN/UNCONFIRMED: one Compare run (Fine+Bainite, 150px crop) made the whole sandboxed app window vanish near 95% during the Bainite stage; immediate retry completed clean, empty stderr. Not reproduced, no stack trace. If seen again, launch app with `> app.log 2>&1` to capture. Resurface on any crash report near reconstruction end.
 - interact recipe reconfirmed: launch_app(command="bash -lc 'cd <repo> && exec env LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe QT_QPA_PLATFORM=xcb .venv/bin/python -m pagb_reconstruction.app data/martensite_roomtemp.ctf'", size="1600x1200"); window opens fixed 1200x800. Compare on 150px crop ~2-4 min/config. Dialogs are QDialog with no title bar in WM-less sandbox — capture target="nested". Poll with run_actions chained sleep(≤30s)+screenshot, not Bash sleep.
+
+## 2026-07-21 — full ergonomic audit (verdict FAIL) + OR panel delta verdict
+
+### Environment / harness
+- Reconstruction on `data/martensite_roomtemp.ctf` now completes in **~12s**
+  (978 parents, 93.4% recon, mean fit 5.79°) — supersedes the stale ~18.5min note above.
+- The **OR tab loads its data without running a reconstruction** — an OR-only check can skip the run.
+- `QSettings` persists geometry + theme inconsistently across launches — always screenshot after launch, never assume size or theme.
+- Preset-combo `click + Down + Return` sometimes needs a **second Return** to commit. Verify by screenshot, not the action log.
+- **interact gotcha (filed as interact #82)**: mouse-wheel `scroll` can resize the whole app WINDOW rather than scroll the target widget (1600x1200 → 1600x2000 observed). Avoid `scroll` for this app; use `xdotool windowsize` for exact sizes.
+
+### Confirmed-open defects, ranked
+- **Docks are non-resizable** — splitter drags produce zero pixel movement in either axis. Root cause of the map's ~27%-width letterboxing: the user cannot trade empty dock space for map area.
+- **Map viewer wastes ~70% of its width** to fixed-aspect letterboxing while sitting beside equally empty docks; the two compound.
+- **Right-dock tab strip shows only 2 of 4 tabs** (Phases/OR/Params/Info) at ~315px; switching can permanently hide a previously-visible tab with **no scroll affordance** — only recovery is the View-menu checkbox toggle.
+- **Equalize corrupts categorical maps** — on "Phase" it turns 2 colours into banded rainbow noise. Should be disabled for non-continuous channels.
+- ~~**Fullscreen-fit toolbar button** toggles with zero effect~~ **NOT REPRODUCED 2026-07-21** — `zoom_fit()` was measured headless against a zoomed-in viewbox and correctly restores the full image range, producing the identical result to `autoRange(padding=0)`. The "no effect" reading is what a working Fit button looks like when the view is ALREADY fitted. Do not re-file without first zooming in, then clicking Fit. No fix applied — patching a working control on an unreproduced symptom would have been a speculative change.
+- **Line-profile toolbar toggle appears to do nothing**: it arms a mode that needs two subsequent clicks ON THE MAP to draw a profile, but gives no cursor change, hint, or armed-state feedback. Still open — the defect is the missing affordance, not a dead control (`toggle_line_mode` is covered by test_map_viewer.py).
+- **Statistics dock**: ~35% permanently blank right of the stat cards. **Params panel**: 10+ fields, only ~3 visible before clipping.
+
+### Poles-blank / Parents-empty — do NOT re-file as dead features
+Both were observed blank in the audit session, but each was verified to work when given data: the pole figure renders 2476 scatter points from real quaternions, and `worst_fit_parents` returns 200 rows on the real map (`parent_orientations` = 334167 finite quats, 978 parents). The same session saw the **result silently reset to "Idle"** after an Escape keypress plus a drag near the dock splitter (window also jumped size). Escape is bound to Stop. Both symptoms are almost certainly **downstream of that reset** — re-check whether the result is still live before diagnosing either panel. The reset itself is the real open bug and needs a dedicated repro pass.
+
+### OR panel — Misorientation Distribution plot
+- **`minimumHeight` is NOT enforced** by the enclosing `QScrollArea` in the real dock: it **clips silently rather than scrolling**. Measured 178px at a 1080px window and ~20px (invisible) at 900px, against a 220px floor. **Headless/offscreen does NOT reproduce this** — the scroll area behaves correctly there (484px, scrollbar appears), so this defect is live-dock-only. Floor lowered to 160px, which the dock can honour.
+- Legend naming verified correct ("Measured misorientations" / "Theoretical &lt;preset&gt; peaks"), exactly 2 entries, no stacking across KS→NW→GT→Pitsch→Bain. But the swatch **overlaps the tall measured spike**.
+- **Linear y-axis made the plot scientifically useless**: one ~450k spike near 0° flattens the 40–90° OR peaks (&lt;15k) the panel exists to show. Log-y enabled.
+- Mouse-wheel over the OR panel routes to the map canvas underneath, so a user cannot scroll to reveal clipped content.

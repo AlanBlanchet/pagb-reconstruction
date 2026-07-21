@@ -1067,18 +1067,19 @@ class MainWindow(QMainWindow):
             f"- numpy: {np.__version__}\n"
             f"- Compute: {Quaternions.__name__} ({getattr(Quaternions, 'device', '?')})\n"
             "\n**Recent log**\n"
-            f"<!-- full log: {logging_setup.log_file_path()} -->\n"
             "```\n{log}\n```\n"
         )
-        url = bug_report.issue_url(
+        link = bug_report.issue_url(
             "https://github.com/AlanBlanchet/pagb-reconstruction/issues/new",
             body,
             logging_setup.tail(60),
         )
-        QDesktopServices.openUrl(QUrl(url))
+        QDesktopServices.openUrl(QUrl(link.url))
         # The browser may open behind the app window — without feedback the
         # click reads as dead.
-        msg = "Bug report opened in your browser — attach the full log (Help > Open Log File) if needed"
+        msg = "Bug report opened in your browser"
+        if link.truncated:
+            msg += " — log trimmed to fit; Help > Open Log File has the full one"
         self.statusBar().showMessage(msg, 8000)
         self._log(msg, highlight=True)
 

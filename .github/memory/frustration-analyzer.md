@@ -1,0 +1,3 @@
+# frustration-analyzer memory — pagb-reconstruction
+
+- 2026-07-21 — First run. Incident: small feasibility question ("upload the bug-report log?") escalated by main thread into (a) unrequested auto-reveal-file-manager UI step, (b) publicly FILED GitHub issue proposing OAuth device-flow auth. User: "don't even think about that shit solution". Root causes ranked: (1) "reversible default" wrongly covers PUBLISHING to external-witness surfaces (issues/PRs/releases) — proposed present-then-wait rule; (2) step-9 auto-ship license has no blast-radius ceiling — proposed excluding new security/auth boundaries. Proposals routed to librarian same turn.

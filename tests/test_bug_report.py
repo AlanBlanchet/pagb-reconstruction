@@ -5,6 +5,7 @@ the new-issue URL must be trimmed to a hard budget — the button otherwise
 opens an error page and looks dead.
 """
 
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -21,43 +22,45 @@ def _body(url: str) -> str:
 
 def test_huge_log_still_fits_budget():
     log = "\n".join(f"line {i}: " + "x" * 2000 for i in range(60))
-    url = issue_url(BASE, TEMPLATE, log)
-    assert len(url) <= MAX_URL_LEN
-    assert url.startswith(BASE + "?")
+    link = issue_url(BASE, TEMPLATE, log)
+    assert len(link.url) <= MAX_URL_LEN
+    assert link.url.startswith(BASE + "?")
+    assert link.truncated
 
 
 def test_small_log_kept_verbatim_without_note():
     log = "2026-07-21 INFO app: started\n2026-07-21 ERROR core: boom"
-    url = issue_url(BASE, TEMPLATE, log)
-    body = _body(url)
+    link = issue_url(BASE, TEMPLATE, log)
+    body = _body(link.url)
     assert log in body
     assert "truncated" not in body
+    assert not link.truncated
 
 
 def test_trimming_keeps_newest_lines_and_says_so():
     lines = [f"line {i}: " + "x" * 400 for i in range(60)]
-    url = issue_url(BASE, TEMPLATE, "\n".join(lines))
-    body = _body(url)
+    link = issue_url(BASE, TEMPLATE, "\n".join(lines))
+    body = _body(link.url)
     assert lines[-1] in body, "newest log line must survive trimming"
     assert lines[0] not in body, "oldest lines are the ones dropped"
     assert "truncated" in body
 
 
 def test_single_monster_line_cannot_blow_the_budget():
-    url = issue_url(BASE, TEMPLATE, "x" * 50_000)
-    assert len(url) <= MAX_URL_LEN
+    assert len(issue_url(BASE, TEMPLATE, "x" * 50_000).url) <= MAX_URL_LEN
 
 
 def test_empty_log():
-    url = issue_url(BASE, TEMPLATE, "")
-    assert len(url) <= MAX_URL_LEN
-    assert "**Describe the bug**" in _body(url)
+    link = issue_url(BASE, TEMPLATE, "")
+    assert len(link.url) <= MAX_URL_LEN
+    assert "**Describe the bug**" in _body(link.url)
+    assert not link.truncated
 
 
 @pytest.mark.parametrize("n_chars", [100, 3000, 20_000, 200_000])
 def test_budget_holds_across_log_sizes(n_chars):
     log = "\n".join("y" * 80 for _ in range(n_chars // 80))
-    assert len(issue_url(BASE, TEMPLATE, log)) <= MAX_URL_LEN
+    assert len(issue_url(BASE, TEMPLATE, log).url) <= MAX_URL_LEN
 
 
 def test_report_bug_action_emits_bounded_url(qtbot, monkeypatch, tmp_path):
@@ -92,3 +95,7 @@ def test_report_bug_action_emits_bounded_url(qtbot, monkeypatch, tmp_path):
     # The browser can open behind the app — the click must leave visible feedback.
     assert w.statusBar().currentMessage(), "no in-app feedback after Report Bug"
     assert "Bug report opened" in w._log_text.toPlainText(), "no Log-panel line"
+    # A public issue must not leak the reporter's machine-local paths.
+    body = _body(opened[0])
+    assert str(tmp_path) not in body, "local log path leaked into the issue body"
+    assert str(Path.home()) not in body, "home directory leaked into the issue body"

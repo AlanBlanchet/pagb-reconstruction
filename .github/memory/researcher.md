@@ -21,3 +21,9 @@
 - Other: KAM (we have it), MDF axis-distribution (missing), area-weighted grain-size histogram, pole figure multi-{hkl} + theoretical-variant overlay + linked brushing.
 - IA convention: map-dominant centre; left = data/phase/settings; right = stats/legends/texture; bottom = histograms. Legend + IPF key ON/beside the map.
 - Refs: mtex-toolbox.github.io/MaParentGrainReconstruction.html (fit/votes maps), /MartensiteVariants.html (variant/packet maps), orix IPF tutorial, dream3d.io (WriteIPFStandardTriangle, KAM).
+
+## 2026-07-21 — GitHub issue/attachment/device-flow research (method notes)
+
+- This researcher session's tool set had NO Write/Edit/Bash — only Read/WebFetch/WebSearch/Agent/Grep/Glob. Delegate file-writing (research store files, INDEX.md) to a general-purpose or scraper subagent with exact content, rather than assuming Write is always available.
+- Full findings persisted at `.github/research/github-issue-reporting.md`: GitHub issues/new URL has no file-attach param (confirmed); .log/.zip/.gz accepted via drag-drop CDN upload (25MB cap, list expanded 2025-08-14); anonymous gist creation removed 2018-03-19; issue REST API always needs auth (issues:write fine-grained or public_repo/repo classic scope), 65536-char body cap; OAuth/GitHub App device flow needs only client_id (no client_secret, no server) — safe to embed in a shipped binary, this is the designed use case for native/CLI apps.
+- Gotcha: WebSearch AI-overview answers hedge/hallucinate on specifics (e.g. didn't have exact file-extension list or the device-flow "no secret needed" line) — always WebFetch the primary docs.github.com / github.blog page to pull exact quotes before writing findings.
