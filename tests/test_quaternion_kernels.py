@@ -77,3 +77,31 @@ def test_variant_edges_matches_numpy(sym):
     got = sorted(zip(r_g.tolist(), c_g.tolist(), np.round(w_g, 3).tolist()))
     ref = sorted(zip(r_r.tolist(), c_r.tolist(), np.round(w_r, 3).tolist()))
     assert got == ref
+
+
+def test_refine_or_cost_matches_reference(sym):
+    """OR refinement is 84% of a reconstruction. The reference implementation
+    allocates two numpy arrays inside its innermost loop (~300k allocations per
+    call); the kernel must produce the SAME cost without them."""
+    from pagb_reconstruction.utils.math_ops import MisorientationOps
+
+    variants = _rand_quats(24, 21)
+    qi, qj = _rand_quats(120, 22), _rand_quats(120, 23)
+
+    got = qk.kernels().refine_or_cost(qi, qj, variants, sym)
+    ref = MisorientationOps.refine_or_cost_reference(qi, qj, variants, sym)
+    assert abs(got - ref) < 1e-3, f"kernel {got} vs reference {ref}"
+
+
+def test_refine_or_cost_is_a_mean_over_pairs(sym):
+    """Cost is the mean best-angle per pair, so duplicating every pair must not
+    change it."""
+    import numpy as np
+
+    variants = _rand_quats(24, 24)
+    qi, qj = _rand_quats(40, 25), _rand_quats(40, 26)
+    single = qk.kernels().refine_or_cost(qi, qj, variants, sym)
+    doubled = qk.kernels().refine_or_cost(
+        np.vstack([qi, qi]), np.vstack([qj, qj]), variants, sym
+    )
+    assert abs(single - doubled) < 1e-9

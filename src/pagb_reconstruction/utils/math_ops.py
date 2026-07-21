@@ -247,7 +247,17 @@ class MisorientationOps:
     _angle_with_symmetry = staticmethod(_misori_angle_with_symmetry)
     _angle_simple = staticmethod(_misori_angle_simple)
     _axis_angle_with_symmetry = staticmethod(_misori_axis_angle_with_symmetry)
-    refine_or_cost = staticmethod(_refine_or_cost)
+    # The numba reference kept for tests to compare against; the shipped path is
+    # the compiled kernel, which drops ~300k array allocations per call.
+    refine_or_cost_reference = staticmethod(_refine_or_cost)
+
+    @staticmethod
+    def refine_or_cost(pair_qi, pair_qj, variants, sym_quats) -> float:
+        from pagb_reconstruction.utils import quaternion_kernels
+
+        return quaternion_kernels.kernels().refine_or_cost(
+            pair_qi, pair_qj, variants, sym_quats
+        )
 
     @staticmethod
     def pairs(

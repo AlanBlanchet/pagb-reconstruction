@@ -152,6 +152,48 @@ def _edge_body(cand_i, cand_j, sym, out):
             out[a, b] = math.degrees(2.0 * math.acos(top))
 
 
+
+def _refine_cost_body(qi, qj, variants, sym, out):
+    """Best symmetry-reduced angle between any pair of candidate parents.
+
+    For one neighbouring grain pair: over every (a, b) variant combination, the
+    disorientation between qi's candidate parent a and qj's candidate parent b;
+    the output is the smallest. Everything is scalar — the reference version
+    allocated two numpy arrays per innermost iteration, which dominated its cost.
+    """
+    best = 1e30
+    n_var = variants.shape[0]
+    for a in range(n_var):
+        # pi = qi * conj(variants[a])
+        aw, ax, ay, az = variants[a, 0], -variants[a, 1], -variants[a, 2], -variants[a, 3]
+        pw = qi[0] * aw - qi[1] * ax - qi[2] * ay - qi[3] * az
+        px = qi[0] * ax + qi[1] * aw + qi[2] * az - qi[3] * ay
+        py = qi[0] * ay - qi[1] * az + qi[2] * aw + qi[3] * ax
+        pz = qi[0] * az + qi[1] * ay - qi[2] * ax + qi[3] * aw
+        for b in range(n_var):
+            bw, bx, by, bz = variants[b, 0], -variants[b, 1], -variants[b, 2], -variants[b, 3]
+            rw = qj[0] * bw - qj[1] * bx - qj[2] * by - qj[3] * bz
+            rx = qj[0] * bx + qj[1] * bw + qj[2] * bz - qj[3] * by
+            ry = qj[0] * by - qj[1] * bz + qj[2] * bw + qj[3] * bx
+            rz = qj[0] * bz + qj[1] * by - qj[2] * bx + qj[3] * bw
+            # disorientation between the two candidate parents
+            mw = pw * rw + px * rx + py * ry + pz * rz
+            mx = -pw * rx + px * rw - py * rz + pz * ry
+            my = -pw * ry + px * rz + py * rw - pz * rx
+            mz = -pw * rz - px * ry + py * rx + pz * rw
+            top = 0.0
+            for si in range(sym.shape[0]):
+                w = abs(sym[si, 0] * mw - sym[si, 1] * mx - sym[si, 2] * my - sym[si, 3] * mz)
+                if w > top:
+                    top = w
+            if top > 1.0:
+                top = 1.0
+            ang = math.degrees(2.0 * math.acos(top))
+            if ang < best:
+                best = ang
+    out[0] = best
+
+
 # --------------------------------------------------------------------------
 # Compilation. Each body becomes a gufunc for the requested target.
 # --------------------------------------------------------------------------
@@ -228,6 +270,11 @@ class _Kernels:
             "(v,n),(w,n),(s,n)->(v,w)",
             _edge_body,
         )
+        self._refine = gu(
+            [(f[:], f[:], f[:, :], f[:, :], f[:])],
+            "(n),(n),(v,n),(s,n)->()",
+            _refine_cost_body,
+        )
 
     def self_test(self) -> None:
         """Force compilation and a launch, so an unusable CUDA install fails here
@@ -239,6 +286,7 @@ class _Kernels:
         self.best_variant(q, q, q)
         self.fit_angles(q, q, q, sym)
         self.candidate_parents(q, q)
+        self.refine_or_cost(q, q, q, sym)
 
     def _a(self, x) -> np.ndarray:
         return np.ascontiguousarray(x, dtype=self.dtype)
@@ -281,6 +329,13 @@ class _Kernels:
     def fit_angles(self, variants, parent, child, sym_quats):
         v, p, c = self._a(variants), self._a(parent), self._a(child)
         return self._fit(v, p, c, self._a(sym_quats)).astype(np.float64)
+
+    def refine_or_cost(self, pair_qi, pair_qj, variants, sym_quats) -> float:
+        """Mean best-angle over neighbouring grain pairs — the OR refinement cost."""
+        per_pair = self._refine(
+            self._a(pair_qi), self._a(pair_qj), self._a(variants), self._a(sym_quats)
+        )
+        return float(np.asarray(per_pair, dtype=np.float64).mean())
 
     def _row_step(self, inner: int) -> int:
         """Rows per chunk so an intermediate stays around 200 MB."""
