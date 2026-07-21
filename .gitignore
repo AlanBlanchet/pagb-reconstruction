@@ -21,3 +21,6 @@ dist-test/
 # Rust prototype build output
 rust_test/target/
 .sweep-log/
+
+# Rust wheel build output
+dist-wheels/

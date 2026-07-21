@@ -41,7 +41,8 @@ jobs:
       - name: Build Rust kernels
         run: |
           uv pip install maturin
-          cd rust && uv run maturin develop --release
+          uv run maturin build --release -m rust/Cargo.toml -o dist-wheels
+          uv pip install --no-index --find-links dist-wheels pagb-kernels
 
       # Bundles the CUDA compiler (~61 MB) so a user with only a display driver
       # still gets GPU kernels; without it the app silently falls back to CPU.
@@ -99,7 +100,8 @@ jobs:
       - name: Build Rust kernels
         run: |
           uv pip install maturin
-          cd rust && uv run maturin develop --release
+          uv run maturin build --release -m rust/Cargo.toml -o dist-wheels
+          uv pip install --no-index --find-links dist-wheels pagb-kernels
 
       # Bundles the CUDA compiler (~61 MB) so a user with only a display driver
       # still gets GPU kernels; without it the app silently falls back to CPU.
