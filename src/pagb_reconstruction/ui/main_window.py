@@ -798,6 +798,16 @@ class MainWindow(QMainWindow):
         clear_roi_action.triggered.connect(self._clear_roi)
         toolbar.addAction(clear_roi_action)
 
+        aa_action = QAction("Anti-alias", self)
+        aa_action.setToolTip(
+            "Smooth the map image. Off = crisp pixels (the real EBSD grid); "
+            "on also avoids the fractional-scaling moiré"
+        )
+        aa_action.setCheckable(True)
+        aa_action.setChecked(True)
+        aa_action.toggled.connect(self._map_viewer.set_antialiasing)
+        toolbar.addAction(aa_action)
+
         fps_action = QAction("FPS", self)
         fps_action.setToolTip("Show a frames-per-second counter on the map")
         fps_action.setCheckable(True)

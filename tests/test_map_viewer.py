@@ -621,6 +621,32 @@ def test_hover_reads_one_pixel_not_the_whole_map(qtbot):
     assert calls["pixel_euler"] == 1
 
 
+def test_antialias_toggle_switches_between_crisp_and_smooth(qtbot):
+    """Anti-alias OFF = crisp nearest-neighbour pixels (inspect the real EBSD
+    grid); ON = smoothed — which is also the fractional-scaling moiré fix, so it
+    stays the default. Vector overlays keep their own anti-aliasing either way."""
+    from PySide6.QtGui import QPainter
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    # default: smooth (moiré-safe)
+    assert w._graphics_view.renderHints() & QPainter.RenderHint.SmoothPixmapTransform
+    assert w._image_item.autoDownsample is True
+
+    w.set_antialiasing(False)  # crisp pixels
+    assert not (
+        w._graphics_view.renderHints() & QPainter.RenderHint.SmoothPixmapTransform
+    )
+    assert w._image_item.autoDownsample is False
+    assert w._split_image_item.autoDownsample is False
+
+    w.set_antialiasing(True)  # smooth again
+    assert w._graphics_view.renderHints() & QPainter.RenderHint.SmoothPixmapTransform
+    assert w._image_item.autoDownsample is True
+
+
 def test_fps_counter_toggles(qtbot):
     """The FPS counter is off by default and shows when toggled on."""
     from pagb_reconstruction.ui.widgets.map_viewer import MapViewer

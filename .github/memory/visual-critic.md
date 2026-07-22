@@ -220,4 +220,10 @@ Re-verified after `main_window.py` was rebuilt from HEAD (a bad scripted slice h
 - **Border weight** (user: "too big"): PASS. Pen 2px->1px cosmetic; measured median 1-2px, crisp even in dense clusters, zoom-stable.
 - **FPS counter**: PASS. Toggle in the View toolbar ("FPS" button) -> live "N fps" readout top-right of the map.
 - **"Black lines everywhere" (density, NOT thickness)**: the martensite map reconstructs to 978 parents, median ECD 2-4um (long tail of small parents) but area-weighted-mean ~11um — a few large grains + many tiny ones. Filtering the overlay to parents >5um ECD (314 of 978) renders as clean as Eloise's reference. Lever is reconstruction min-grain-size/merge OR a display filter — a data-visibility decision, surfaced to the user, not baked in.
-- **P3 duplicate hover readout (critic-flagged, recurring since 2026-06-18)**: the SAME `(x,y)|Phase|phi|IQ` string renders TWICE — `MapViewer._status_strip` (above bottom dock tabs) AND the real `MainWindow` QStatusBar, ~380px apart. Fix = delete `_status_strip`, keep the QStatusBar. Still open; needs actual deletion, not another observation.
+## 2026-07-22 — Anti-alias toggle (crisp/smooth) CONFIRMED PASS
+
+- View-toolbar "Anti-alias" checkable button: checked by default (smooth = the moiré fix), plain text label (discoverable — VLM found it unprompted by name).
+- Toggling at high zoom (~25 Zoom-In clicks on Band Contrast) is a dramatic, unmistakable switch: ON = blurred interpolated gradient, OFF = crisp hard-edged pixel blocks. Bidirectional, no re-render errors.
+- Method: switch to Band Contrast (greyscale, INSTANT, no reconstruction needed) via the display dropdown before zooming — avoids the reconstruction wait for a pixel-crispness check.
+
+- **P3 duplicate hover readout (recurring since 2026-06-18) — RESOLVED 91fecd6**: the `(x,y)|Phase|phi|IQ` string rendered twice (`MapViewer._status_strip` + `MainWindow` QStatusBar). Fixed by removing the WINDOW-bar hover readout (disconnected `pixel_hovered` → `_on_pixel_hover`, deleted the handler) and keeping the viewer strip (sits under the map, already handles not-indexed + mouse-left). Note: diverged from the earlier "keep the QStatusBar" suggestion — kept the strip because it's the more functional one and it was the minimal change. Window QStatusBar now free for ROI/save/error messages.

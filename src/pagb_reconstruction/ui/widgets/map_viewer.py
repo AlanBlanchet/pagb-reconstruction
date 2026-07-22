@@ -116,6 +116,7 @@ class MapViewer(QWidget):
         self._colormap_name = "viridis"
         self._boundary_visible = False
         self._parent_boundary_visible = False
+        self._antialias_enabled = True
         self._fps_visible = False
         self._fps_last_t: float | None = None
         self._fps_smooth: float | None = None
@@ -497,6 +498,22 @@ class MapViewer(QWidget):
     def set_parent_boundary_overlay(self, visible: bool):
         self._parent_boundary_visible = bool(visible)
         self._update_parent_boundary()
+
+    def set_antialiasing(self, enabled: bool):
+        """Smooth the map image, or show it as crisp nearest-neighbour pixels.
+
+        OFF renders the real EBSD grid pixel-for-pixel — for inspecting the data
+        at its true resolution. ON smooths it AND suppresses the fractional-scale
+        moiré ("très pixelisé") on Windows 125/150 % displays, so it is the
+        default. Vector overlays (boundaries, scale bar) keep their own
+        anti-aliasing regardless — only the raster image is affected."""
+        self._antialias_enabled = bool(enabled)
+        self._graphics_view.setRenderHint(
+            QPainter.RenderHint.SmoothPixmapTransform, enabled
+        )
+        self._image_item.setAutoDownsample(enabled)
+        self._split_image_item.setAutoDownsample(enabled)
+        self._graphics_view.viewport().update()
 
     def select_display_index(self, index: int):
         if index < self._display_combo.count():
