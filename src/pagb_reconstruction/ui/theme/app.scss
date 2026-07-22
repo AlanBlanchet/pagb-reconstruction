@@ -383,6 +383,17 @@ QLabel#computingOverlay {
   border-radius: 8px;
 }
 
+QLabel#axisIndicator {
+  /* Sample reference-frame cross (X/Y), quiet in the map's top-left corner.
+     A dark chip keeps it legible over any IPF colour without stealing focus. */
+  background: rgba(0, 0, 0, 0.55);
+  color: $fg;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 7px;
+  border-radius: 5px;
+}
+
 /* Dock tabs must FIT, because Qt does not render scroll arrows for
    QMainWindow-tabified docks in this style — an overflowing tab is simply
    unreachable. Four right-dock tabs must fit the 320px default: a 76px floor

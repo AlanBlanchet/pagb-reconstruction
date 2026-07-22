@@ -3,8 +3,8 @@ import warnings
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
-from PySide6.QtGui import QAction, QPainter
+from PySide6.QtCore import QEasingCurve, QPointF, QPropertyAnimation, QRectF, Qt, Signal
+from PySide6.QtGui import QAction, QFont, QPainter
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -45,8 +45,57 @@ _IPF_DIRECTIONS = {
 }
 
 
+def _nice_bar_length(width_um: float) -> float:
+    """A round scale-bar length (1, 2 or 5 x a power of ten) about 1/5 of the
+    map width — a bar reading "3.7 µm" is unusable. Mirrors the figure export's
+    nice_scale_length so the live bar and the exported one agree."""
+    if width_um <= 0:
+        return 1.0
+    target = width_um / 5.0
+    base = 10.0 ** np.floor(np.log10(target))
+    for multiple in (5.0, 2.0, 1.0):
+        if multiple * base <= target:
+            return float(multiple * base)
+    return float(base)
+
+
+class _ScaleBar(pg.ScaleBar):
+    """Scale bar anchored BOTTOM-LEFT.
+
+    pyqtgraph's stock bar grows LEFTWARD (rect ``[-w, 0]``) and centres its label
+    at ``-w/2``, so anchored bottom-left both fall off the left edge and only the
+    unit survives — the number is clipped (found live, 2026-07-22). This grows
+    RIGHTWARD instead, and carries a bold white label on a dark chip so it reads
+    over a bright IPF map, like the reference OIM exports.
+    """
+
+    def __init__(self, size, suffix="µm"):
+        super().__init__(size=size, width=6, suffix=suffix)
+        self.text.setParentItem(None)  # drop the stock label, rebuild it bolder
+        font = QFont()
+        font.setPointSize(11)
+        font.setBold(True)
+        self.text = pg.TextItem(
+            text="", color=(255, 255, 255), anchor=(0.5, 1),
+            fill=pg.mkBrush(0, 0, 0, 150),
+        )
+        self.text.setFont(font)
+        self.text.setParentItem(self)
+
+    def updateBar(self):
+        view = self.parentItem()
+        if view is None:
+            return
+        p1 = view.mapFromViewToItem(self, QPointF(0, 0))
+        p2 = view.mapFromViewToItem(self, QPointF(self.size, 0))
+        w = (p2 - p1).x()
+        self.bar.setRect(QRectF(0, 0, w, self._width))
+        self.text.setPos(w / 2.0, 0)
+
+
 class MapViewer(QWidget):
     line_mode_changed = Signal(bool)
+    parent_boundary_changed = Signal(bool)
     pixel_hovered = Signal(int, int)
     pixel_clicked = Signal(int, int)
     roi_changed = Signal(int, int, int, int)
@@ -57,6 +106,7 @@ class MapViewer(QWidget):
         self._result: ReconstructionResult | None = None
         self._colormap_name = "viridis"
         self._boundary_visible = False
+        self._parent_boundary_visible = False
         self._current_image: np.ndarray | None = None
         self._hist_eq_enabled = False
         self._active_worker: ComputeWorker | None = None
@@ -110,6 +160,18 @@ class MapViewer(QWidget):
         self._plot.addItem(self._boundary_item)
         self._boundary_item.setVisible(False)
 
+        # Reconstructed parent (prior-austenite) boundaries: bold BLACK vector
+        # lines over the orientation map — the signature PAGB view. A cosmetic
+        # pen keeps them a constant width on screen, so they stay crisp whether
+        # the whole 700-px map or a single grain is in view (a rasterised mask
+        # would thin to nothing zoomed out). Above the yellow child boundaries.
+        _parent_pen = pg.mkPen(color=(0, 0, 0), width=2)
+        _parent_pen.setCosmetic(True)
+        self._parent_boundary_item = pg.PlotCurveItem(pen=_parent_pen)
+        self._parent_boundary_item.setZValue(10.5)
+        self._plot.addItem(self._parent_boundary_item)
+        self._parent_boundary_item.setVisible(False)
+
         self._highlight_item = pg.ImageItem()
         self._highlight_item.setZValue(11)
         self._plot.addItem(self._highlight_item)
@@ -160,9 +222,10 @@ class MapViewer(QWidget):
         self._split_combo = QComboBox()
         self._split_combo.currentTextChanged.connect(self._update_split_display)
 
-        self._scalebar_item = pg.ScaleBar(size=10, suffix="µm")
+        # Bottom-LEFT, matching the reference OIM exports Eloïse works from.
+        self._scalebar_item = _ScaleBar(size=10, suffix="µm")
         self._scalebar_item.setParentItem(self._plot.vb)
-        self._scalebar_item.anchor((1, 1), (1, 1), offset=(-20, -20))
+        self._scalebar_item.anchor((0, 1), (0, 1), offset=(20, -20))
         self._scalebar_item.hide()
 
         self._proxy = pg.SignalProxy(
@@ -186,6 +249,21 @@ class MapViewer(QWidget):
         self._hint_label.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._hint_label.setVisible(False)
+
+        # Sample reference frame (which way X/Y run on the map), like the axis
+        # cross on the OIM exports. y is drawn top-to-bottom (invertY), so Y
+        # points DOWN. Sits quietly in the top-left of the map.
+        self._axis_indicator = QLabel(
+            "X&nbsp;→<br>Y&nbsp;↓", self._graphics_view
+        )
+        self._axis_indicator.setObjectName("axisIndicator")
+        self._axis_indicator.setTextFormat(Qt.TextFormat.RichText)
+        self._axis_indicator.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._axis_indicator.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+        )
+        self._axis_indicator.move(10, 8)
+        self._axis_indicator.setVisible(False)
 
         self._computing_overlay = QLabel("", self._graphics_view)
         self._computing_overlay.setObjectName("computingOverlay")
@@ -279,6 +357,8 @@ class MapViewer(QWidget):
         self._placeholder.setVisible(False)
         self._graphics_view.setVisible(True)
         self._status_strip.setVisible(True)
+        self._axis_indicator.setVisible(True)
+        self._axis_indicator.raise_()
         self._populate_combo()
         self._update_scalebar()
         self._update_display()
@@ -288,13 +368,20 @@ class MapViewer(QWidget):
         if self._ebsd_map:
             self._ebsd_map.set_result(result)
         self._populate_combo()
-        # Show the result automatically — the user should not have to hunt the
-        # parent map in the list after a long compute.
-        idx = self._display_combo.findText("Parent + Boundaries")
+        # Land on the reference PAGB view: the measured orientations (IPF-Z)
+        # with the reconstructed parent boundaries drawn on top — exactly the
+        # overlay Eloïse compares against. The user should not have to assemble
+        # it by hand after a long compute.
+        self._parent_boundary_visible = True
+        self.parent_boundary_changed.emit(True)
+        idx = self._display_combo.findText("IPF-Z")
         if idx >= 0:
             self._display_combo.setCurrentIndex(idx)
         else:
             self._update_display()
+        # The base map recomputes async; draw the boundaries now (they need only
+        # the result), and _on_compute_done redraws them over the finished map.
+        self._update_parent_boundary()
 
     def clear(self):
         self._ebsd_map = None
@@ -302,9 +389,11 @@ class MapViewer(QWidget):
         self._current_image = None
         self._image_item.clear()
         self._boundary_item.clear()
+        self._parent_boundary_item.setVisible(False)
         self.clear_highlight()
         self._colorbar_plot.setVisible(False)
         self._ipf_key_plot.setVisible(False)
+        self._axis_indicator.setVisible(False)
         self._scalebar_item.hide()
         self._graphics_view.setVisible(False)
         self._status_strip.setVisible(False)
@@ -315,6 +404,16 @@ class MapViewer(QWidget):
     def current_image(self):
         """The data currently displayed (not the rendered pixmap)."""
         return self._current_image
+
+    def current_parent_segments(self):
+        """Parent-boundary segments IF the overlay is currently shown, else
+        None — so an exported figure carries the same lines the user sees."""
+        if not self._parent_boundary_visible or self._ebsd_map is None:
+            return None
+        try:
+            return self._ebsd_map.parent_boundary_segments()
+        except Exception:
+            return None
 
     def current_meta(self):
         """Metadata for the current display mode (unit, colormap, dtype)."""
@@ -330,6 +429,10 @@ class MapViewer(QWidget):
     def set_boundary_overlay(self, visible: bool):
         self._boundary_visible = visible
         self._update_boundary()
+
+    def set_parent_boundary_overlay(self, visible: bool):
+        self._parent_boundary_visible = bool(visible)
+        self._update_parent_boundary()
 
     def select_display_index(self, index: int):
         if index < self._display_combo.count():
@@ -482,6 +585,7 @@ class MapViewer(QWidget):
                 self._image_item.setLookupTable(lut)
                 self._update_colorbar(display, meta)
         self._update_boundary()
+        self._update_parent_boundary()
         self._update_scalebar()
         self._plot.getViewBox().autoRange(padding=0)
 
@@ -551,7 +655,14 @@ class MapViewer(QWidget):
         h, w = img.shape[:2]
         self._ipf_key_item.setRect(0, 0, w, h)
         axis = name.split("-")[1] if "-" in name else "Z"
-        self._ipf_key_plot.setTitle(f"IPF ∥ {axis}", size="8pt")
+        # Name the phase(s) the key colours, like the "Austenite" / "Ferrite"
+        # labels on the OIM triangles. Both cubic phases share one triangle, so
+        # one correctly-labelled key serves both rather than cloning two.
+        phases = ", ".join(p.name for p in self._ebsd_map.phases)
+        title = f"IPF ∥ {axis}"
+        if phases:
+            title += f"<br><span style='font-size:7pt'>{phases}</span>"
+        self._ipf_key_plot.setTitle(title, size="8pt")
         self._ipf_key_plot.setVisible(True)
         self._ipf_key_plot.getViewBox().autoRange(padding=0.02)
 
@@ -646,6 +757,22 @@ class MapViewer(QWidget):
         self._boundary_item.setImage(rgba, autoLevels=False, levels=(0, 1))
         self._boundary_item.setVisible(True)
 
+    def _update_parent_boundary(self):
+        if not self._parent_boundary_visible or self._ebsd_map is None:
+            self._parent_boundary_item.setVisible(False)
+            return
+        try:
+            segments = self._ebsd_map.parent_boundary_segments()
+        except Exception:
+            segments = None
+        if segments is None or len(segments[0]) == 0:
+            # No reconstruction (or an empty one) — nothing to outline.
+            self._parent_boundary_item.setVisible(False)
+            return
+        xs, ys = segments
+        self._parent_boundary_item.setData(xs, ys, connect="pairs")
+        self._parent_boundary_item.setVisible(True)
+
     def _update_scalebar(self):
         if self._ebsd_map is None:
             self._scalebar_item.hide()
@@ -653,10 +780,13 @@ class MapViewer(QWidget):
         step = self._ebsd_map.step_size[1]
         cols = self._ebsd_map.shape[1]
         width_um = step * cols
-        bar_size = 10 ** int(np.log10(max(width_um / 5, 1)))
-        bar_px = bar_size / step if step > 0 else 10
+        bar_um = _nice_bar_length(width_um)
+        bar_px = bar_um / step if step > 0 else 10
         self._scalebar_item.size = bar_px
-        self._scalebar_item.text.setText(f"{bar_size} µm")
+        self._scalebar_item.text.setText(f"{bar_um:g} µm")
+        # Setting .size alone does not redraw; the stock bar only refreshes on a
+        # view range change. Redraw now so the new length shows immediately.
+        self._scalebar_item.updateBar()
         self._scalebar_item.show()
 
     def _on_mouse_move(self, args):

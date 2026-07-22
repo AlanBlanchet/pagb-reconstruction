@@ -474,3 +474,101 @@ def test_export_hides_interactive_decorations(qtbot, tmp_path):
 
     assert seen["crosshair_during"] is False, "crosshair rendered into the export"
     assert w._crosshair_h.isVisible(), "crosshair not restored after export"
+
+
+def test_parent_boundary_overlay_draws_only_with_a_result(qtbot):
+    """Eloïse's reference: reconstructed parent boundaries as bold lines over the
+    orientation map. The overlay shows only when a reconstruction supplies
+    segments, and hides when toggled off or when no result is loaded."""
+    import numpy as np
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    segs = (np.array([2.0, 2.0]), np.array([0.0, 4.0]))
+
+    class _WithResult:
+        shape = (4, 4)
+
+        def parent_boundary_segments(self):
+            return segs
+
+    class _NoResult:
+        shape = (4, 4)
+
+        def parent_boundary_segments(self):
+            return None
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+
+    w._ebsd_map = _WithResult()
+    w.set_parent_boundary_overlay(True)
+    assert w._parent_boundary_item.isVisible(), "parent boundaries not drawn"
+
+    w._ebsd_map = _NoResult()
+    w.set_parent_boundary_overlay(True)
+    assert not w._parent_boundary_item.isVisible(), (
+        "parent overlay must stay hidden with no reconstruction"
+    )
+
+    w._ebsd_map = _WithResult()
+    w.set_parent_boundary_overlay(False)
+    assert not w._parent_boundary_item.isVisible(), "toggling off must hide it"
+
+
+def test_parent_boundary_paints_above_child_boundary(qtbot):
+    """Parent outlines (bold, black) must sit ABOVE the yellow child-boundary
+    overlay so they read as the dominant structure, like the reference."""
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    assert w._parent_boundary_item.zValue() > w._boundary_item.zValue()
+
+
+def test_scalebar_grows_rightward_for_bottom_left_anchor(qtbot):
+    """Regression (visual-critic 2026-07-22): the scale bar showed only "µm" with
+    NO number. pyqtgraph's stock bar grows LEFTWARD (rect [-w, 0]) and centres the
+    label at -w/2, so anchored bottom-left both ran off the left edge and clipped
+    the number. The bar must grow RIGHTWARD (rect starts at x=0) so it and its
+    label sit inside the view.
+    """
+    from PySide6.QtCore import QPointF
+
+    from pagb_reconstruction.ui.widgets.map_viewer import _ScaleBar
+
+    bar = _ScaleBar(size=10, suffix="µm")
+
+    class _FakeView:
+        def mapFromViewToItem(self, item, pt):
+            return QPointF(pt.x() * 5.0, pt.y() * 5.0)  # 5 px per data unit
+
+        def parentItem(self):  # terminate Qt's parent-chain walk on geometry change
+            return None
+
+    fake = _FakeView()
+    bar.parentItem = lambda: fake
+    bar.size = 4
+    bar.updateBar()
+    rect = bar.bar.rect()
+    assert rect.left() == 0.0, (
+        f"bar must start at x=0 and grow right, got left={rect.left()}"
+    )
+    assert rect.width() == 20.0  # 4 data units * 5 px
+    # the label is centred over the bar (positive x), not off the left edge
+    assert bar.text.pos().x() > 0.0
+
+
+def test_scalebar_label_carries_a_number(qtbot, sample_ebsd):
+    """The bar label must state a length, not just the unit — a bar reading only
+    "µm" conveys no scale."""
+    import re
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    w.set_ebsd_map(sample_ebsd)
+    label = w._scalebar_item.text.textItem.toPlainText()
+    assert re.search(r"\d", label), f"scale-bar label has no number: {label!r}"
+    assert "µm" in label

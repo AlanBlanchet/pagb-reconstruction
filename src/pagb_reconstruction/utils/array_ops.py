@@ -15,6 +15,51 @@ def boundaries_from_2d(arr: np.ndarray) -> np.ndarray:
     return boundary
 
 
+def region_boundary_segments(
+    labels: np.ndarray, ignore: float | None = None
+) -> tuple[np.ndarray, np.ndarray]:
+    """Cell-edge line segments separating adjacent pixels of different label.
+
+    Returns ``(xs, ys)`` where consecutive PAIRS of points are the two ends of
+    one segment — the shape ``pyqtgraph.PlotDataItem(connect="pairs")`` draws.
+    A pixel ``(r, c)`` spans ``x in [c, c+1]``, ``y in [r, r+1]``, so the edge
+    between columns ``c`` and ``c+1`` is the vertical segment ``x = c+1``,
+    ``y in [r, r+1]``, and between rows the horizontal segment ``y = r+1``.
+
+    ``ignore`` drops every edge that touches a cell of that label, keeping the
+    ragged outline of the unreconstructed (id ``-1``) region off the overlay so
+    only real region-vs-region boundaries are traced.
+
+    Vector segments with a screen-space pen stay crisp at any zoom, unlike a
+    rasterised 1-px mask that thins to sub-pixel with a whole map in view.
+    """
+    labels = np.asarray(labels)
+    rows, cols = labels.shape
+
+    vdiff = labels[:, :-1] != labels[:, 1:]
+    hdiff = labels[:-1, :] != labels[1:, :]
+    if ignore is not None:
+        vdiff &= (labels[:, :-1] != ignore) & (labels[:, 1:] != ignore)
+        hdiff &= (labels[:-1, :] != ignore) & (labels[1:, :] != ignore)
+
+    vr, vc = np.nonzero(vdiff)
+    hr, hc = np.nonzero(hdiff)
+    nv, nh = vr.size, hr.size
+
+    xs = np.empty(2 * (nv + nh), dtype=np.float64)
+    ys = np.empty(2 * (nv + nh), dtype=np.float64)
+
+    # Vertical edges: (c+1, r) -> (c+1, r+1)
+    xs[0 : 2 * nv : 2] = xs[1 : 2 * nv : 2] = vc + 1
+    ys[0 : 2 * nv : 2] = vr
+    ys[1 : 2 * nv : 2] = vr + 1
+    # Horizontal edges: (c, r+1) -> (c+1, r+1)
+    xs[2 * nv + 0 :: 2] = hc
+    xs[2 * nv + 1 :: 2] = hc + 1
+    ys[2 * nv + 0 :: 2] = ys[2 * nv + 1 :: 2] = hr + 1
+    return xs, ys
+
+
 def align_hemisphere(quats: np.ndarray, ref: np.ndarray) -> np.ndarray:
     aligned = quats.copy()
     for k in range(len(aligned)):

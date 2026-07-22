@@ -200,3 +200,27 @@ def test_schmid_factor_matches_reference_and_is_fast():
             sf = abs(float(n.dot(loading).data[0])) * abs(float(d.dot(loading).data[0]))
             best = max(best, sf)
         assert flat_got[i] == pytest.approx(best, abs=1e-6), f"pixel {i} differs"
+
+
+def test_parent_boundary_segments_trace_parent_regions():
+    """Reconstructed parent boundaries surface as vector segments in map (x, y),
+    ignoring the unreconstructed (-1) border — the data behind the "lines drawn
+    for parents" overlay."""
+    from pagb_reconstruction.utils.array_ops import region_boundary_segments
+
+    emap = _make_map(with_holes=False)  # 4x4 dense map
+    assert emap.parent_boundary_segments() is None, "no result -> no segments"
+
+    grid_ids = np.zeros((4, 4), dtype=int)
+    grid_ids[:, 2:] = 1  # left parent 0 | right parent 1, boundary at x=2
+
+    class _Result:
+        parent_grain_ids = grid_ids.ravel()
+
+    emap.set_result(_Result())
+    xs, ys = emap.parent_boundary_segments()
+    exp_xs, exp_ys = region_boundary_segments(grid_ids.astype(float), ignore=-1)
+    assert np.array_equal(xs, exp_xs) and np.array_equal(ys, exp_ys)
+    assert xs.size > 0, "two adjacent parents must produce a boundary"
+    # the only boundary is the vertical line at x=2
+    assert set(np.round(xs, 3)) == {2.0}

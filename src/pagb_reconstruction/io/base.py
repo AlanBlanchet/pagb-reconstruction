@@ -25,7 +25,13 @@ class EBSDLoader(BaseModel):
                 tmp = Path(tmp_dir) / (path.stem + detected_ext)
                 tmp.symlink_to(path.resolve())
                 load_path = tmp
-            xmap = orix_load(str(load_path))
+            # autogen_names=False keeps the .ang header's real MaterialName
+            # ("Austenite"/"Ferrite"); with the default True, orix renames them
+            # ("Fe-432-A") AND collapses every phase's lattice to the last one
+            # read — loading austenite at ferrite's 2.87 Å. Only orix's ANG
+            # reader takes the kwarg, so scope it to .ang files.
+            kwargs = {"autogen_names": False} if load_path.suffix.lower() == ".ang" else {}
+            xmap = orix_load(str(load_path), **kwargs)
         finally:
             if tmp_dir is not None:
                 shutil.rmtree(tmp_dir)
@@ -94,12 +100,14 @@ def extract_phases(xmap: CrystalMap) -> list[PhaseConfig]:
             pg = "m-3m"
         else:
             pg = getattr(pg_obj, "name", None) or str(pg_obj).split("\n", 1)[0]
-        lattice = (
-            getattr(phase, "structure", None)
-            and phase.structure
-            and getattr(phase.structure, "lattice", None)
-        )
-        lp = _lattice_from_structure(lattice) if lattice else _default_lattice(pg)
+        # Read the lattice straight off the structure. An EBSD phase usually has
+        # no atom basis, and a diffpy Structure with zero atoms is FALSY, so the
+        # old `and phase.structure` short-circuited and threw away orix's real
+        # per-phase lattice — falling back to _default_lattice("432"), whose
+        # "43" in "432" match returned 2.87 Å for austenite (true a = 3.595).
+        structure = getattr(phase, "structure", None)
+        lattice = getattr(structure, "lattice", None) if structure is not None else None
+        lp = _lattice_from_structure(lattice) if lattice is not None else _default_lattice(pg)
         family = _family_from_point_group(pg)
         phases.append(
             PhaseConfig(

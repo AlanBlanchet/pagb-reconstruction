@@ -19,7 +19,10 @@ from pagb_reconstruction.core.constants import (
 from pagb_reconstruction.core.grain import Grain, detect_grains
 from pagb_reconstruction.core.phase import PhaseConfig
 from pagb_reconstruction.core.grid import GridInfo
-from pagb_reconstruction.utils.array_ops import boundaries_from_2d
+from pagb_reconstruction.utils.array_ops import (
+    boundaries_from_2d,
+    region_boundary_segments,
+)
 from pagb_reconstruction.utils.colormap import DEFAULT_IPF_DIRECTION, ipf_colors
 from pagb_reconstruction.utils.compute import Quaternions
 from pagb_reconstruction.utils.math_ops import MisorientationOps
@@ -337,6 +340,17 @@ class EBSDMap(SpatialMap):
     )
     def parent_grain_id_map(self) -> np.ndarray:
         return self._to_grid(self._result.parent_grain_ids).astype(np.float32)
+
+    def parent_boundary_segments(self) -> tuple[np.ndarray, np.ndarray] | None:
+        """Reconstructed parent-grain boundaries as vector line segments in map
+        (x, y) coordinates, as endpoint pairs for ``connect="pairs"``. ``None``
+        when no reconstruction is loaded. The unreconstructed (id ``-1``) border
+        is ignored, so only parent-vs-parent boundaries are drawn — Eloïse's
+        "lines drawn for parents" overlaid on the orientation map."""
+        if self._result is None:
+            return None
+        parent_ids = self._to_grid(self._result.parent_grain_ids, fill=-1)
+        return region_boundary_segments(parent_ids, ignore=-1)
 
     @map_property(
         "Variant ID", requires_result=True, dtype="discrete", category="reconstruction"

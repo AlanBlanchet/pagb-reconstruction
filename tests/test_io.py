@@ -17,6 +17,21 @@ def test_loaders_cover_expected_formats():
     assert {".ang", ".ctf", ".h5", ".crc"} <= exts
 
 
+def test_ang_preserves_phase_names_and_per_phase_lattice():
+    """orix autogenerates phase names ('Austenite' -> 'Fe-432-A') and, as a side
+    effect, collapses every phase's lattice to the last phase read — so austenite
+    loaded at a=2.87 instead of its real 3.595. Both must survive the load, or the
+    IPF legend and phase map mislabel the microstructure."""
+    m = load_ebsd(Path("data/sdss_ferrite_austenite.ang"))
+    by_name = {p.name.lower(): p for p in m.phases}
+    assert "austenite" in by_name, f"austenite name lost: {[p.name for p in m.phases]}"
+    assert "ferrite" in by_name
+    assert by_name["austenite"].lattice.a == pytest.approx(3.595, abs=0.01), (
+        f"austenite lattice collapsed to {by_name['austenite'].lattice.a}"
+    )
+    assert by_name["ferrite"].lattice.a == pytest.approx(2.867, abs=0.01)
+
+
 def test_crc_loader_roundtrip(tmp_path):
     # A tiny Channel5 .crc + .cpr (no large fixture needed): 25-byte records,
     # phase byte + 3 Bunge Euler floats, rest skipped.

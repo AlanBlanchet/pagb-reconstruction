@@ -747,9 +747,23 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self._cmap_combo)
 
         self._boundary_cb = QCheckBox("Boundaries")
-        self._boundary_cb.setToolTip("Show grain boundary overlay")
+        self._boundary_cb.setToolTip("Show child grain boundary overlay")
         self._boundary_cb.toggled.connect(self._map_viewer.set_boundary_overlay)
         toolbar.addWidget(self._boundary_cb)
+
+        self._parent_boundary_cb = QCheckBox("Parent boundaries")
+        self._parent_boundary_cb.setToolTip(
+            "Overlay reconstructed prior-austenite grain boundaries on the map"
+        )
+        self._parent_boundary_cb.toggled.connect(
+            self._map_viewer.set_parent_boundary_overlay
+        )
+        toolbar.addWidget(self._parent_boundary_cb)
+        # The viewer turns this on automatically when a reconstruction finishes;
+        # keep the checkbox in step so it reflects the live overlay.
+        self._map_viewer.parent_boundary_changed.connect(
+            self._parent_boundary_cb.setChecked
+        )
 
         toolbar.addSeparator()
 
@@ -1192,6 +1206,7 @@ class MainWindow(QMainWindow):
                 unit=(meta.unit if meta else "") or "",
                 colormap=(meta.colormap if meta and meta.colormap else "viridis"),
                 categorical=bool(meta and meta.dtype == "discrete"),
+                parent_segments=self._map_viewer.current_parent_segments(),
             )
             self._log(f"Exported figure (scale bar + key) to {path}")
         except Exception as e:  # noqa: BLE001 — never lose the user's export

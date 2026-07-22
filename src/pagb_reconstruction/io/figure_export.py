@@ -48,8 +48,10 @@ def _draw_scale_bar(ax, n_cols: int, dx: float):
     height = max(1.5, n_cols * 0.008)
     margin = height * 2.5
 
-    x1 = n_cols * 0.97
-    x0 = x1 - bar_px
+    # Bottom-LEFT, matching the reference OIM exports and the live viewer bar
+    # (and clear of the colour bar, which sits on the right).
+    x0 = n_cols * 0.03
+    x1 = x0 + bar_px
     bar_y = bottom - margin - height
 
     ax.add_patch(Rectangle((x0, bar_y), bar_px, height, color="white", zorder=5))
@@ -67,6 +69,29 @@ def _draw_scale_bar(ax, n_cols: int, dx: float):
     )
 
 
+def _draw_parent_segments(ax, segments):
+    """Bold black parent-grain outlines, aligned to pixel boundaries.
+
+    ``segments`` is ``(xs, ys)`` of endpoint PAIRS in map (x, y) where an edge
+    between pixels ``c`` and ``c+1`` sits at ``x = c+1``. imshow centres pixel
+    ``c`` at ``x = c``, so that same boundary is at ``x = c+0.5`` — shift by
+    -0.5 to land the line exactly on the pixel seam.
+    """
+    xs, ys = segments
+    xs = np.asarray(xs, dtype=float)
+    ys = np.asarray(ys, dtype=float)
+    if xs.size == 0:
+        return
+    ax.plot(
+        xs.reshape(-1, 2).T - 0.5,
+        ys.reshape(-1, 2).T - 0.5,
+        color="black",
+        linewidth=1.1,
+        solid_capstyle="round",
+        zorder=4,
+    )
+
+
 def export_map_figure(
     path,
     image: np.ndarray,
@@ -75,6 +100,7 @@ def export_map_figure(
     unit: str = "",
     colormap: str = "viridis",
     categorical: bool = False,
+    parent_segments: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> Path:
     """Write ``image`` as a figure with a scale bar and the right colour key.
 
@@ -121,6 +147,9 @@ def export_map_figure(
         bar = fig.colorbar(im, ax=ax, fraction=0.045, pad=0.02)
         if unit:
             bar.set_label(unit)
+
+    if parent_segments is not None:
+        _draw_parent_segments(ax, parent_segments)
 
     _draw_scale_bar(ax, n_cols, dx)
     if title:

@@ -57,3 +57,35 @@ def test_scale_bar_uses_real_physical_size(tmp_path):
     out = tmp_path / "s.png"
     export_map_figure(out, data, title="t", step_size=(0.5, 0.5))
     assert out.exists()
+
+
+def test_parent_boundary_segments_drawn_into_figure(tmp_path):
+    """A publication figure of the parent view must carry the black parent lines
+    the user sees on screen — so an exported figure matches the reference OIM
+    overlay, not just a bare orientation map."""
+    from PIL import Image
+
+    # a bright uniform IPF-like RGB map (no black anywhere on its own)
+    rgb = np.ones((60, 60, 3), dtype=np.float32)
+    rgb[:, :, 2] = 0.2  # yellow-ish, so any near-black pixel is a drawn line
+
+    def _black_count(path):
+        im = np.asarray(Image.open(path).convert("RGB"))
+        return int((im.max(axis=2) < 40).sum())
+
+    plain = tmp_path / "plain.png"
+    export_map_figure(plain, rgb, title="IPF-Z", step_size=(0.2, 0.2))
+
+    # one vertical parent boundary down the middle: endpoint pairs at x=30
+    xs = np.array([30.0, 30.0])
+    ys = np.array([0.0, 60.0])
+    withseg = tmp_path / "withseg.png"
+    export_map_figure(
+        withseg, rgb, title="IPF-Z", step_size=(0.2, 0.2),
+        parent_segments=(xs, ys),
+    )
+
+    assert withseg.exists()
+    assert _black_count(withseg) > _black_count(plain) + 200, (
+        "parent boundary line not rendered into the figure"
+    )
