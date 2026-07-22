@@ -53,7 +53,10 @@ class WorkflowRail(QWidget):
         layout.setSpacing(2)
 
         self._group = QButtonGroup(self)
-        self._group.setExclusive(True)
+        # Not exclusive: an exclusive group forbids clearing the cue, and a
+        # stageless tab (Statistics, Log) must clear it rather than let the rail
+        # lie about where the user is. One-at-a-time is enforced in set_current.
+        self._group.setExclusive(False)
         self._buttons: dict[str, QToolButton] = {}
 
         for stage in _STAGES:
@@ -81,11 +84,27 @@ class WorkflowRail(QWidget):
 
     def select(self, key: str) -> None:
         """Programmatic selection — same path as a click, one signal."""
-        btn = self._buttons.get(key)
-        if btn is None:
+        if key not in self._buttons:
             return
-        btn.setChecked(True)
+        self.set_current(key)
         self.stage_selected.emit(key)
+
+    def set_current(self, key: str | None) -> None:
+        """Reflect external state (a manually raised tab) WITHOUT emitting.
+
+        The cue was click-driven only, so navigating by dock tab left the rail
+        claiming the last rail-clicked stage — a stale "you are here". None
+        clears the cue: a stageless tab means no stage is current, and saying
+        nothing beats lying.
+        """
+        for k, btn in self._buttons.items():
+            btn.setChecked(k == key)
+
+    def current(self) -> str | None:
+        for k, btn in self._buttons.items():
+            if btn.isChecked():
+                return k
+        return None
 
     def is_current(self, key: str) -> bool:
         btn = self._buttons.get(key)

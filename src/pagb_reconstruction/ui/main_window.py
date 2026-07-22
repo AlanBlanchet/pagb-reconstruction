@@ -509,6 +509,7 @@ class MainWindow(QMainWindow):
         """
         self._workflow_rail = WorkflowRail()
         self._workflow_rail.stage_selected.connect(self._on_workflow_stage)
+        self._sync_rail_to_docks()
         rail_bar = QToolBar("Workflow")
         rail_bar.setObjectName("workflowRailBar")
         rail_bar.setMovable(False)
@@ -524,10 +525,38 @@ class MainWindow(QMainWindow):
         "review": ("Info", "Parents"),
     }
 
+    # dock name -> the stage it belongs to; docks absent here have no stage and
+    # CLEAR the rail cue (saying nothing beats claiming a wrong stage).
+    _DOCK_STAGE = {
+        "Phases": "phases",
+        "OR": "or",
+        "Misorientation": "or",
+        "Params": "params",
+        "Reconstruction": "run",
+        "Parents": "review",
+        "Info": "review",
+    }
+
+    def _sync_rail_to_docks(self) -> None:
+        """Keep the rail's cue truthful when the user navigates by tab."""
+        for name, dock in self._docks.items():
+            dock.visibilityChanged.connect(
+                lambda visible, n=name: self._on_dock_surfaced(n) if visible else None
+            )
+
+    def _on_dock_surfaced(self, name: str) -> None:
+        self._workflow_rail.set_current(self._DOCK_STAGE.get(name))
+
     def _on_workflow_stage(self, key: str) -> None:
+        if key != "load":
+            self._stage_before_load = key
         if key == "load":
-            # "Load" means load: the file picker IS this stage's surface.
+            # "Load" is an ACTION, not a destination: run the picker, then put
+            # the cue back where the user actually is. Leaving it current forever
+            # was measured as a stale "you are here" (11th-pass verdict).
+            previous = getattr(self, "_stage_before_load", None)
             self._open_file()
+            self._workflow_rail.set_current(previous)
             return
         right, bottom = self._STAGE_PANELS.get(key, (None, None))
         for name in (right, bottom):

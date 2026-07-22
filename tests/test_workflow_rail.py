@@ -60,3 +60,62 @@ def test_main_window_routes_stages_to_panels(qtbot):
     w._workflow_rail.select("review")
     qtbot.wait(50)
     assert w._docks["Parents"].isVisible(), "Review stage must surface Parents"
+
+
+def test_set_current_reflects_without_emitting(qtbot):
+    """Syncing FROM the tabs must not fire the routing back at the tabs."""
+    from pagb_reconstruction.ui.widgets.workflow_rail import WorkflowRail
+
+    rail = WorkflowRail()
+    qtbot.addWidget(rail)
+    seen = []
+    rail.stage_selected.connect(seen.append)
+    rail.set_current("params")
+    assert rail.is_current("params")
+    assert seen == [], "reflecting external state must not re-emit it"
+    rail.set_current(None)
+    assert not any(rail.is_current(s.key) for s in rail.stages())
+
+
+def test_manual_tab_raise_updates_the_rail(qtbot):
+    """The cue must follow the user, not only the rail's own clicks.
+
+    Measured live: after rail-clicking Load, manually raising Statistics and
+    Phases left 'Load' highlighted — a stale 'you are here' that reads as wrong
+    the moment the user navigates by tab, which they will.
+    """
+    from pagb_reconstruction.ui.main_window import MainWindow
+
+    w = MainWindow()
+    qtbot.addWidget(w)
+    w.show()
+    qtbot.waitExposed(w)
+
+    w._docks["Params"].raise_()
+    qtbot.wait(50)
+    assert w._workflow_rail.is_current("params"), (
+        "raising the Params tab by hand did not move the rail cue"
+    )
+
+    # A dock with no stage (Statistics) clears the cue rather than lying.
+    w._docks["Statistics"].raise_()
+    qtbot.wait(50)
+    assert not any(
+        w._workflow_rail.is_current(s.key) for s in w._workflow_rail.stages()
+    ), "the rail claims a stage while a stageless tab is active"
+
+
+def test_load_is_an_action_not_a_destination(qtbot, monkeypatch):
+    """After the file dialog closes, 'Load' must not stay marked current."""
+    from pagb_reconstruction.ui.main_window import MainWindow
+
+    w = MainWindow()
+    qtbot.addWidget(w)
+    monkeypatch.setattr(w, "_open_file", lambda: None)
+
+    w._workflow_rail.select("params")
+    w._workflow_rail.select("load")
+    assert not w._workflow_rail.is_current("load"), (
+        "'Load' stayed current after its dialog — it is an action, not a place"
+    )
+    assert w._workflow_rail.is_current("params"), "previous stage not restored"
