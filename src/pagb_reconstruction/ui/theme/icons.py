@@ -48,6 +48,10 @@ _REGISTRY: dict[str, str] = {
     "phase": "ph.circles-three",
     "orientation": "ph.compass",
     "params": "ph.sliders-horizontal",
+    # workflow rail stages (semantic, not glyph-named)
+    "phases": "ph.stack",
+    "or": "ph.arrows-clockwise",
+    "review": "ph.magnifying-glass",
     "stats": "ph.chart-bar-horizontal",
     "poles": "ph.globe-hemisphere-west",
     "log": "ph.list-bullets",

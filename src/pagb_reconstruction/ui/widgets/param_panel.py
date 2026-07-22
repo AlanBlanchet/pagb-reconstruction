@@ -26,6 +26,19 @@ from pagb_reconstruction.ui.theme import active_theme, icon
 
 _PRESETS = {
     "Default": ReconstructionConfig(),
+    # Mirrors the reference MTEX script from issue #13: Ang=4°, MinPixel=400,
+    # thr_deg=3.5, VTHR=3.5° x8 votes, MINPROB=0.5, MERGE=5°, MAXINC=150.
+    "MTEX": ReconstructionConfig(
+        grain_threshold_deg=4.0,
+        min_grain_size=400,
+        threshold_deg=3.5,
+        tolerance_deg=3.5,
+        gb_vote_threshold_deg=3.5,
+        gb_vote_iterations=8,
+        gb_vote_min_prob=0.5,
+        merge_similar_deg=5.0,
+        merge_inclusions_max_size=150,
+    ),
     "Fine": ReconstructionConfig(
         threshold_deg=1.5,
         tolerance_deg=1.5,

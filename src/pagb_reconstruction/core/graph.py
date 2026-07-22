@@ -144,6 +144,81 @@ def vote_fill(
     return labels
 
 
+
+def gb_vote_fill(
+    grain_labels: np.ndarray,
+    grains: list[Grain],
+    parent_quats: np.ndarray,
+    or_relationship,
+    sym_quats: np.ndarray,
+    threshold_deg: float = 3.5,
+    iterations: int = 8,
+    min_prob: float = 0.5,
+) -> np.ndarray:
+    """Grow the reconstruction by fit-gated boundary votes (MTEX calcGBVotes).
+
+    After graph clustering, grains the clusterer left out stay unreconstructed
+    even when they are crystallographically consistent with a neighbouring
+    parent — on bainite this left ~14% coverage. MTEX closes the gap with an
+    iterative vote loop; this is that loop:
+
+    per iteration ``k`` (threshold ``k * threshold_deg``, as in the reference
+    script's ``k*VTHR``), an unassigned grain looks at its ASSIGNED neighbours,
+    votes for their parents, and adopts the winner only if
+      * the winner holds at least ``min_prob`` of the neighbour votes, and
+      * the grain's OR fit to that parent is inside the iteration's threshold.
+
+    Unlike :func:`vote_fill`, the fit gate means a majority can never force a
+    crystallographically incompatible parent onto a grain.
+    """
+    from pagb_reconstruction.utils.compute import Quaternions
+
+    labels = grain_labels.copy()
+    id_map = grain_index_map(grains)
+    variants = or_relationship.variant_quaternions()
+
+    for k in range(1, max(1, iterations) + 1):
+        threshold_k = threshold_deg * k
+        changed = False
+        for i, grain in enumerate(grains):
+            if labels[i] >= 0:
+                continue
+            assigned = [
+                id_map[nid]
+                for nid in grain.neighbor_ids
+                if id_map.get(nid) is not None and labels[id_map[nid]] >= 0
+            ]
+            if not assigned:
+                continue
+
+            votes: dict[int, int] = {}
+            for idx in assigned:
+                lab = int(labels[idx])
+                votes[lab] = votes.get(lab, 0) + 1
+
+            candidates = np.array(sorted(votes), dtype=np.int64)
+            child = np.tile(grain.mean_quaternion, (len(candidates), 1))
+            fits = np.atleast_1d(
+                Quaternions.fit_angles(
+                    variants, parent_quats[candidates], child, sym_quats
+                )
+            )
+
+            # winner: most votes, fit as tie-break
+            order = sorted(
+                range(len(candidates)),
+                key=lambda j: (-votes[int(candidates[j])], fits[j]),
+            )
+            best = order[0]
+            prob = votes[int(candidates[best])] / len(assigned)
+            if prob >= min_prob and fits[best] <= threshold_k:
+                labels[i] = int(candidates[best])
+                changed = True
+        if not changed and k >= iterations:
+            break
+
+    return labels
+
 def build_variant_graph(
     grains: list[Grain],
     or_obj: OrientationRelationship,

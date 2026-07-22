@@ -181,9 +181,11 @@ class ReconstructionPanel(QWidget):
         if result:
             total_time = time.monotonic() - self._start_time
             self._progress_bar.setValue(100)
+            # NB: the closing literal is NOT an f-string — "}}" would emit two
+            # braces and Qt rejects the whole sheet ("Could not parse stylesheet").
             self._progress_bar.setStyleSheet(
                 f"QProgressBar::chunk {{ background: {active_theme().success};"
-                " border-radius: 6px; }}"
+                " border-radius: 6px; }"
             )
             self._step_label.setText("Done")
             self._step_counter.setText(f"{len(_STEP_NAMES)}/{len(_STEP_NAMES)}")

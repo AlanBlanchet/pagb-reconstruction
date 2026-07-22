@@ -342,6 +342,26 @@ QLabel#mapPlaceholder {
   border-radius: 12px;
   margin: 40px;
 }
+// Workflow rail: the analysis order on the left edge. Quiet chrome — the
+// stages read as a map of the workflow, not six shouting buttons; the current
+// stage carries the same accent-border language as every armed toolbutton.
+QToolBar#workflowRailBar { background: $surface_dim; border-right: 1px solid $border; padding: 0; }
+QWidget#workflowRail { background: transparent; }
+QToolButton#railStage {
+  border: 1px solid transparent;
+  border-radius: $radius;
+  padding: 6px 4px;
+  min-width: 56px;
+  color: $text_muted;
+  font-size: 11px;
+}
+QToolButton#railStage:hover { background: $surface; color: $fg; }
+QToolButton#railStage:checked {
+  background: $elevated;
+  color: $fg;
+  border: 1px solid $accent;
+}
+
 QLabel#modeHint {
   // Armed-mode banner (line profile etc.): readable over any map colour,
   // quieter than the computing scrim since the app stays interactive.

@@ -158,3 +158,26 @@ def test_merge_similar_only_merges_adjacent(synthetic_multi_parent):
     labels = eng._parent_labels
     assert labels[0] == labels[1], "adjacent + similar parents must merge"
     assert labels[2] != labels[0], "non-adjacent similar parent must NOT merge"
+
+
+def test_gb_vote_config_fields_exist():
+    """Issue #13: her MTEX pipeline grows coverage with iterative GB votes
+    (k*VTHR, minProb); the engine must expose the same knobs."""
+    cfg = ReconstructionConfig()
+    assert cfg.gb_vote_threshold_deg == 3.5
+    assert cfg.gb_vote_iterations == 8
+    assert cfg.gb_vote_min_prob == 0.5
+
+
+def test_variant_graph_path_runs_gb_votes(synthetic_multi_parent):
+    """The default path must include the vote-growth stage — without it, grains
+    the clusterer leaves out stay unreconstructed even when compatible (14%
+    coverage on her bainite)."""
+    emap, _, _ = synthetic_multi_parent
+    cfg = ReconstructionConfig(gb_vote_iterations=0)
+    res_off = ReconstructionEngine(emap, cfg).run()
+    cfg_on = ReconstructionConfig()
+    res_on = ReconstructionEngine(emap, cfg_on).run()
+    cov_off = float((res_off.parent_grain_ids >= 0).mean())
+    cov_on = float((res_on.parent_grain_ids >= 0).mean())
+    assert cov_on >= cov_off, "vote growth must never reduce coverage"

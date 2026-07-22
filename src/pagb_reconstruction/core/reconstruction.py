@@ -8,6 +8,7 @@ from pagb_reconstruction.core.base import Displayable
 from pagb_reconstruction.core.ebsd_map import EBSDMap
 from pagb_reconstruction.core.grain import Grain, detect_grains
 from pagb_reconstruction.core.graph import (
+    gb_vote_fill,
     build_adjacency_graph,
     build_variant_graph,
     markov_cluster,
@@ -77,6 +78,27 @@ class ReconstructionConfig(Displayable):
         default=50,
         title="Merge islands ≤ (px)",
         description="Parent clusters smaller than this (total pixels) are merged into neighbors",
+    )
+    gb_vote_threshold_deg: float = Field(
+        default=3.5,
+        title="GB vote threshold (°)",
+        description="Boundary-vote growth: per iteration k an unassigned grain "
+        "may adopt a neighbouring parent if its OR fit is within k × this "
+        "threshold (MTEX calcGBVotes k*VTHR)",
+    )
+    gb_vote_iterations: int = Field(
+        default=8,
+        ge=0,
+        title="GB vote iterations",
+        description="Iterations of boundary-vote growth after clustering; 0 disables",
+    )
+    gb_vote_min_prob: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        title="GB vote min. probability",
+        description="Minimum share of an unassigned grain's assigned neighbours "
+        "that must agree before it adopts their parent (MTEX minProb)",
     )
     n_vote_iterations: int = Field(
         default=3,
@@ -187,10 +209,21 @@ class ReconstructionEngine:
         )
         self._parent_quats = self._aggregate_parent_quats(parent_oris)
 
-        _progress("Vote filling", 0.7)
-        self._parent_labels = vote_fill(
-            self._parent_labels, self._grains, self._config.n_vote_iterations
-        )
+        if self._config.gb_vote_iterations > 0:
+            # Fit-gated boundary votes (MTEX calcGBVotes): grow coverage from the
+            # cluster seeds, but never hand a grain to a crystallographically
+            # incompatible parent the way a bare majority vote can.
+            _progress("Boundary-vote growth", 0.7)
+            self._parent_labels = gb_vote_fill(
+                self._parent_labels,
+                self._grains,
+                self._parent_quats,
+                self._or,
+                self._map._primary_symmetry_quats(),
+                threshold_deg=self._config.gb_vote_threshold_deg,
+                iterations=self._config.gb_vote_iterations,
+                min_prob=self._config.gb_vote_min_prob,
+            )
 
         _progress("Merging similar", 0.8)
         self._merge_similar()

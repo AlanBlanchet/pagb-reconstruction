@@ -54,6 +54,7 @@ from pagb_reconstruction.ui.widgets.stats_dashboard import StatsDashboard
 from pagb_reconstruction.ui.widgets.summary_panel import SummaryPanel
 from pagb_reconstruction.ui.widgets.task_manager import TaskManager
 from pagb_reconstruction.ui.widgets.update_bar import UpdateBar
+from pagb_reconstruction.ui.widgets.workflow_rail import WorkflowRail
 
 _MAX_RECENT = 8
 _SETTINGS_ORG = "PAGB"
@@ -269,6 +270,7 @@ class MainWindow(QMainWindow):
         self.resizeDocks([dock_phases], [320], Qt.Orientation.Horizontal)
         self.resizeDocks([dock_recon], [230], Qt.Orientation.Vertical)
 
+        self._setup_workflow_rail()
         self._setup_menu()
         self._setup_toolbar()
         self._setup_statusbar()
@@ -497,6 +499,44 @@ class MainWindow(QMainWindow):
             dock.show()
         if added:
             self._make_dock_tabs_scrollable()
+
+    def _setup_workflow_rail(self):
+        """The analysis order, visible and clickable, on the left edge.
+
+        Tab order was the only hint of what to do first. Each stage surfaces the
+        panels it needs; the map never moves. Additive — every tab keeps
+        working, so the routing is verifiable stage by stage.
+        """
+        self._workflow_rail = WorkflowRail()
+        self._workflow_rail.stage_selected.connect(self._on_workflow_stage)
+        rail_bar = QToolBar("Workflow")
+        rail_bar.setObjectName("workflowRailBar")
+        rail_bar.setMovable(False)
+        rail_bar.addWidget(self._workflow_rail)
+        self.addToolBar(Qt.ToolBarArea.LeftToolBarArea, rail_bar)
+
+    # stage -> (right dock to raise, bottom dock to raise)
+    _STAGE_PANELS = {
+        "phases": ("Phases", None),
+        "or": ("OR", "Misorientation"),
+        "params": ("Params", None),
+        "run": (None, "Reconstruction"),
+        "review": ("Info", "Parents"),
+    }
+
+    def _on_workflow_stage(self, key: str) -> None:
+        if key == "load":
+            # "Load" means load: the file picker IS this stage's surface.
+            self._open_file()
+            return
+        right, bottom = self._STAGE_PANELS.get(key, (None, None))
+        for name in (right, bottom):
+            if name is None:
+                continue
+            dock = self._docks.get(name)
+            if dock is not None:
+                dock.show()
+                dock.raise_()
 
     def _setup_menu(self):
         menu_bar = self.menuBar()
