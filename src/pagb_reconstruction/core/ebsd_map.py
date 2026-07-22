@@ -310,7 +310,9 @@ class EBSDMap(SpatialMap):
 
     @map_property("Euler Angles", dtype="rgb", category="orientation")
     def euler_angle_map(self) -> np.ndarray:
-        euler = self.crystal_map.rotations.to_euler(degrees=True)
+        # Normalise (φ1, Φ, φ2) to 0-1 per channel — the RGB display path clips
+        # anything ≥ 1 to white, so raw degrees rendered the whole map blank.
+        euler = self.crystal_map.rotations.to_euler(degrees=True) / [360.0, 180.0, 360.0]
         return self._fill_unindexed(self._to_grid(euler))
 
     @map_property("Grain ID", dtype="discrete", category="microstructure")
