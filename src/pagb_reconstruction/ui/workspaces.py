@@ -39,10 +39,11 @@ PROFILES: dict[str, WorkspaceProfile] = {
         icon="stats",
         # Every result panel a finished reconstruction produces. A dock left out
         # here is HIDDEN the moment this profile auto-applies, which is how
-        # Summary / Misorientation / Parents vanished on completing a run.
+        # Summary / Parents vanished on completing a run. (Poles + Misorientation
+        # are now plots inside the Statistics browser, not their own docks.)
         visible=("Phases", "OR", "Params", "Info",
-                 "Statistics", "Summary", "Misorientation", "Parents",
-                 "Poles", "Reconstruction", "Log"),
+                 "Statistics", "Summary", "Parents",
+                 "Reconstruction", "Log"),
         raised_right="Info",
         raised_bottom="Statistics",
         bottom_height=480,

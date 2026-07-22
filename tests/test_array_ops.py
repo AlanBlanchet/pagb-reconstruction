@@ -8,7 +8,10 @@ instead. These guard the segment geometry.
 
 import numpy as np
 
-from pagb_reconstruction.utils.array_ops import region_boundary_segments
+from pagb_reconstruction.utils.array_ops import (
+    majority_smooth,
+    region_boundary_segments,
+)
 
 
 def _segset(xs, ys):
@@ -56,3 +59,50 @@ def test_ignore_value_suppresses_edges_touching_it():
     # without ignore, the two edges around the -1 cell appear (2 segs -> 4 points)
     xs_all, _ = region_boundary_segments(labels)
     assert xs_all.size == 4
+
+
+# ── majority_smooth: straighten the jagged parent boundaries (MTEX `smooth`) ──
+# Eloïse #14: "parent boundaries should be STRAIGHT lines; here they trace the
+# curved LATH boundaries." A raster label map draws a boundary at every pixel
+# step, so single-pixel fingers/notches read as wiggly lath-following lines.
+
+
+def test_majority_smooth_is_a_noop_at_zero_iterations():
+    a = np.array([[0, 1], [1, 0]], dtype=np.int32)
+    assert np.array_equal(majority_smooth(a, iterations=0), a)
+
+
+def test_majority_smooth_heals_a_single_pixel_notch():
+    a = np.ones((5, 5), dtype=np.int32)
+    a[2, 2] = 0  # a lone 0 poking into a field of 1s
+    out = majority_smooth(a, iterations=1)
+    assert out[2, 2] == 1
+    assert (out == 0).sum() == 0
+
+
+def test_majority_smooth_keeps_a_straight_boundary_fixed():
+    # A straight boundary is already minimal — smoothing must not walk it.
+    a = np.zeros((6, 6), dtype=np.int32)
+    a[:, 3:] = 1
+    assert np.array_equal(majority_smooth(a, iterations=3), a)
+
+
+def test_majority_smooth_reduces_a_ragged_boundary():
+    a = np.zeros((7, 9), dtype=np.int32)
+    a[:, 5:] = 1
+    a[3, 4] = 1  # a 1-finger poking into the 0 field
+    a[1, 5] = 0  # a 0-notch poking into the 1 field
+    before = region_boundary_segments(a)[0].size
+    out = majority_smooth(a, iterations=1)
+    after = region_boundary_segments(out)[0].size
+    assert after < before, "smoothing shortens the jagged boundary"
+    assert out[3, 4] == 0 and out[1, 5] == 1, "both defects heal to the flat edge"
+
+
+def test_majority_smooth_never_erodes_into_unreconstructed():
+    # -1 (unreconstructed) is inviolate: parents neither fill it nor bleed away.
+    a = np.ones((5, 5), dtype=np.int32)
+    a[:, 0] = -1
+    out = majority_smooth(a, iterations=3, ignore=-1)
+    assert (out == -1).sum() == 5
+    assert (out[:, 1:] == 1).all()

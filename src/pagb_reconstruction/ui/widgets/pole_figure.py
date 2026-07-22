@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QVBoxLayout, QW
 from scipy.stats import gaussian_kde
 
 from pagb_reconstruction.ui.theme import active_theme, create_figure
+from pagb_reconstruction.ui.widgets.wheel_guard import block_wheel
 
 
 class PoleFigureWidget(QWidget):
@@ -34,13 +35,27 @@ class PoleFigureWidget(QWidget):
         layout.addLayout(controls)
 
         self._figure, self._canvas = create_figure(figsize=(4, 4))
+        # A matplotlib canvas has no setMouseEnabled(False); block the wheel so
+        # the pole figure never zooms on hover-scroll like the pyqtgraph plots.
+        block_wheel(self._canvas)
         layout.addWidget(self._canvas, 1)
 
-        self._orientations: np.ndarray | None = None
+        self._child_ori: np.ndarray | None = None
+        self._parent_ori: np.ndarray | None = None
 
-    def set_orientations(self, quaternions: np.ndarray):
-        self._orientations = quaternions
+    def set_orientations(
+        self, child: np.ndarray | None = None, parent: np.ndarray | None = None
+    ):
+        """Feed both orientation sets so the Child/Parent selector actually
+        switches source — before, Mode was wired to replot the same array."""
+        self._child_ori = child
+        self._parent_ori = parent
         self._replot()
+
+    @property
+    def _orientations(self) -> np.ndarray | None:
+        parent = self._mode_combo.currentText() == "Parent"
+        return self._parent_ori if parent else self._child_ori
 
     def _replot(self):
         self._figure.clear()

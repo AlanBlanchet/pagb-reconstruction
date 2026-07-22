@@ -42,6 +42,23 @@ def _enclosing_scroll_area(widget: QWidget) -> QScrollArea | None:
     return None
 
 
+class _WheelBlocker(QObject):
+    """Swallows every wheel event so a plot / canvas never zooms on scroll."""
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        return event.type() == QEvent.Type.Wheel
+
+
+def block_wheel(widget: QWidget) -> None:
+    """Make a diagnostic plot / canvas inert to the wheel — a diagnostic plot is
+    not a zoomable canvas (Alan: "we can scroll for each stat plot ... Very
+    weird"). pyqtgraph plots use ``setMouseEnabled(False)``; a matplotlib canvas
+    (the pole figure) has no such switch, so filter the wheel out here."""
+    blocker = _WheelBlocker(widget)
+    widget.installEventFilter(blocker)
+    widget._wheel_blocker = blocker  # keep the filter alive with its widget
+
+
 def install_wheel_guard(widget: QWidget) -> None:
     """Guard ``widget`` if it is wheel-hungry, and every such descendant."""
     guard = _WheelGuard(widget)

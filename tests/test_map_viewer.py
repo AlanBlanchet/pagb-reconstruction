@@ -461,9 +461,13 @@ def test_export_hides_interactive_decorations(qtbot, tmp_path):
     class SpyExporter:
         def __init__(self, plot):
             seen["crosshair_during"] = w._crosshair_h.isVisible()
+            self._params = {"background": None}
+
+        def parameters(self):
+            return self._params
 
         def export(self, path):
-            pass
+            seen["background"] = self._params["background"]
 
     orig = pg.exporters.ImageExporter
     pg.exporters.ImageExporter = SpyExporter
@@ -474,6 +478,44 @@ def test_export_hides_interactive_decorations(qtbot, tmp_path):
 
     assert seen["crosshair_during"] is False, "crosshair rendered into the export"
     assert w._crosshair_h.isVisible(), "crosshair not restored after export"
+
+
+def test_export_uses_a_clean_transparent_background_no_black_frame(qtbot, tmp_path):
+    """Issue #13 "le cadre noir autour": the dark surface_dim plot padding was
+    baked into the saved PNG. A saved image must render on a transparent
+    background, not the near-black chrome."""
+    import numpy as np
+    import pyqtgraph as pg
+    from PySide6.QtGui import QColor
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    w._image_item.setImage(np.random.default_rng(0).random((40, 60, 3)))
+    w._current_image = np.zeros((40, 60, 3))
+
+    captured = {}
+
+    class SpyExporter:
+        def __init__(self, plot):
+            self._params = {"background": None}
+
+        def parameters(self):
+            return self._params
+
+        def export(self, path):
+            captured["bg"] = self._params["background"]
+
+    orig = pg.exporters.ImageExporter
+    pg.exporters.ImageExporter = SpyExporter
+    try:
+        w.export_image(str(tmp_path / "out.png"))
+    finally:
+        pg.exporters.ImageExporter = orig
+
+    bg = captured["bg"]
+    assert isinstance(bg, QColor) and bg.alpha() == 0, "saved PNG needs a clear frame"
 
 
 def test_parent_boundary_overlay_draws_only_with_a_result(qtbot):

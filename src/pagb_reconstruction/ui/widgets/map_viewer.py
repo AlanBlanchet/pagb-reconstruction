@@ -13,7 +13,7 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QAction, QFont, QPainter
+from PySide6.QtGui import QAction, QColor, QFont, QPainter
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -525,11 +525,17 @@ class MapViewer(QWidget):
     def zoom_fit(self):
         self._plot.autoRange()
 
-    def export_image(self, path: str):
-        """Raw plot export. Interactive decorations (click crosshair, ROI,
-        grain highlight, measure line) are session state, not data — issue #13:
-        "on a le cadre noir autour et le curseur de sélection quand on
-        enregistre". Hide them for the render, restore after."""
+    def _render_clean(self, path: str | None = None, *, to_clipboard: bool = False):
+        """Export the map with neither the interactive decorations nor the dark
+        plot padding — issue #13: "on ne peut pas exporter seulement l'image, on
+        a le cadre noir autour et le curseur de sélection quand on enregistre".
+
+        The parent-boundary overlay and scale bar stay (they belong to the
+        figure); the click crosshair, ROI, grain highlight and measure line are
+        session state and are hidden for the render, then restored. The near-black
+        ``surface_dim`` plot background — the "cadre noir" — is replaced with a
+        transparent (saved PNG) or white (clipboard) background, and the view is
+        fitted to the image so no padding rings it."""
         decorations = [
             self._crosshair_h,
             self._crosshair_v,
@@ -540,12 +546,28 @@ class MapViewer(QWidget):
         shown = [d for d in decorations if d is not None and d.isVisible()]
         for d in shown:
             d.setVisible(False)
+        vb = self._plot.getViewBox()
+        old_range = vb.viewRange()
+        if self._current_image is not None:
+            vb.setRange(self._image_item.boundingRect(), padding=0)
         try:
             exporter = pg.exporters.ImageExporter(self._plot)
-            exporter.export(path)
+            # Clipboard alpha pastes as black in many targets, so white there;
+            # a saved PNG keeps a truly transparent margin.
+            exporter.parameters()["background"] = QColor(
+                255, 255, 255, 255 if to_clipboard else 0
+            )
+            if to_clipboard:
+                exporter.export(copy=True)
+            else:
+                exporter.export(path)
         finally:
+            vb.setRange(xRange=old_range[0], yRange=old_range[1], padding=0)
             for d in shown:
                 d.setVisible(True)
+
+    def export_image(self, path: str):
+        self._render_clean(path)
 
     def _update_display(self):
         if self._ebsd_map is None:
@@ -975,8 +997,7 @@ class MapViewer(QWidget):
     def _copy_to_clipboard(self):
         if self._current_image is None:
             return
-        exporter = pg.exporters.ImageExporter(self._plot)
-        exporter.export(copy=True)
+        self._render_clean(to_clipboard=True)
 
     def _save_current_image(self):
         path, _ = QFileDialog.getSaveFileName(

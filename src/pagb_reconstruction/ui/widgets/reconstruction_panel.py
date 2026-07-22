@@ -78,14 +78,41 @@ class _ReconstructionWorker(QThread):
         self.progress.emit(step, pct)
 
 
+class _OptimizeWorker(QThread):
+    """Runs the parameter sweep off the UI thread (Eloïse #14 auto-optimize)."""
+
+    progress = Signal(str, float)
+    finished = Signal(object)
+
+    def __init__(self, ebsd_map: EBSDMap, base_config: ReconstructionConfig):
+        super().__init__()
+        self._ebsd_map = ebsd_map
+        self._base = base_config
+
+    def run(self):
+        try:
+            from pagb_reconstruction.core.compare import auto_optimize
+
+            ranked = auto_optimize(
+                self._ebsd_map, self._base, progress_callback=self.progress.emit
+            )
+            self.finished.emit(ranked[0] if ranked else None)
+        except Exception as e:  # noqa: BLE001 — surface any failure to the panel
+            self.progress.emit(f"Error: {e}", -1.0)
+            self.finished.emit(None)
+
+
 class ReconstructionPanel(QWidget):
     run_requested = Signal()
     compare_requested = Signal()
+    optimize_requested = Signal()
     reconstruction_finished = Signal(object)
+    optimize_finished = Signal(object)
 
     def __init__(self):
         super().__init__()
         self._worker: _ReconstructionWorker | None = None
+        self._opt_worker: _OptimizeWorker | None = None
         self._start_time = 0.0
         self._step_timings: list[tuple[str, float]] = []
         self._config = ReconstructionConfig()
@@ -116,6 +143,14 @@ class ReconstructionPanel(QWidget):
         )
         self._compare_btn.clicked.connect(self.compare_requested.emit)
         btn_layout.addWidget(self._compare_btn)
+
+        self._optimize_btn = QPushButton("Auto-optimize")
+        self._optimize_btn.setToolTip(
+            "Sweep merge + clustering parameters (boundary smoothing on) and adopt "
+            "the best-fitting, most realistically-sized prior-austenite map"
+        )
+        self._optimize_btn.clicked.connect(self.optimize_requested.emit)
+        btn_layout.addWidget(self._optimize_btn)
         layout.addLayout(btn_layout)
 
         progress_layout = QHBoxLayout()
@@ -227,6 +262,39 @@ class ReconstructionPanel(QWidget):
 
         self.reconstruction_finished.emit(result)
         self._worker = None
+
+    def start_auto_optimize(self, ebsd_map: EBSDMap, base_config: ReconstructionConfig):
+        if self._opt_worker is not None and self._opt_worker.isRunning():
+            return
+        self._run_btn.setEnabled(False)
+        self._optimize_btn.setEnabled(False)
+        self._compare_btn.setEnabled(False)
+        self._log.clear()
+        self._log.appendPlainText("Auto-optimize: sweeping parameters…")
+        self._progress_bar.setStyleSheet("")
+        self._results_group.setVisible(False)
+        self._start_time = time.monotonic()
+
+        self._opt_worker = _OptimizeWorker(ebsd_map, base_config)
+        self._opt_worker.progress.connect(self._on_progress)
+        self._opt_worker.finished.connect(self._on_optimize_finished)
+        self._opt_worker.start()
+
+    def _on_optimize_finished(self, best):
+        import dataclasses
+
+        self._run_btn.setEnabled(True)
+        self._optimize_btn.setEnabled(True)
+        self._compare_btn.setEnabled(True)
+        if best is not None:
+            best = dataclasses.replace(best, name="auto-optimized")
+            self._progress_bar.setValue(100)
+            self._step_label.setText("Auto-optimize done")
+        else:
+            self._progress_bar.setValue(0)
+            self._step_label.setText("Auto-optimize failed")
+        self.optimize_finished.emit(best)
+        self._opt_worker = None
 
     def _cancel(self):
         if self._worker and self._worker.isRunning():

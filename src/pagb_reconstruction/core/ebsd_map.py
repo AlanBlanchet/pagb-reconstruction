@@ -228,6 +228,17 @@ class EBSDMap(SpatialMap):
             grid[rows, cols] = data
         return grid
 
+    def from_grid(self, grid: np.ndarray) -> np.ndarray:
+        """Inverse of :meth:`_to_grid` — a 2D grid back to flat per-pixel order.
+
+        Dense maps ravel; sparse maps gather at each pixel's ``(row, col)``. Lets
+        a grid-space transform (boundary smoothing) round-trip to the flat arrays
+        the reconstruction result carries."""
+        if not self.is_sparse:
+            return grid.reshape(-1, *grid.shape[2:]) if grid.ndim > 2 else grid.ravel()
+        rc = self.topology.pixel_to_rc
+        return grid[rc[:, 0], rc[:, 1]]
+
     def pixel_index_at(self, grid_row: int, grid_col: int) -> int:
         rows, cols = self.shape
         if not (0 <= grid_row < rows and 0 <= grid_col < cols):

@@ -26,6 +26,11 @@ class MisorientationPanel(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
 
         self._hist_plot = pg.PlotWidget()
+        # A diagnostic plot is not a zoomable canvas: the wheel scrolled/zoomed
+        # this one (unlike the dashboard charts), the "weird" per-plot scroll
+        # Alan reported. Freeze the view + drop the right-drag menu.
+        self._hist_plot.setMouseEnabled(x=False, y=False)
+        self._hist_plot.getPlotItem().getViewBox().setMenuEnabled(False)
         self._hist_plot.setBackground(active_theme().surface_dim)
         self._hist_plot.setLabel("bottom", "Angle", units="°")
         self._hist_plot.setLabel("left", "Count")

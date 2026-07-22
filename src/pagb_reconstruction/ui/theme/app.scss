@@ -176,6 +176,16 @@ QListWidget::item { padding: 4px 6px; border-radius: $radius-sm; }
 QListWidget::item:hover { background: mix($surface, $surface_dim, 50%); }
 QListWidget::item:selected { background: mix($accent, $surface_dim, 26%); color: $fg; }
 
+// ── Statistics plot browser: a selector rail + one large focused plot ──
+// The category rows are disabled items acting as headers; the placeholder shows
+// before any data. Keeps the browser from looking like a plain flat list.
+#plotSelector::item:disabled {
+  color: $text_muted;
+  background: transparent;
+  padding: 11px 6px 3px 4px;
+}
+#plotPlaceholder { color: $text_muted; font-size: 13px; }
+
 // ── Scrollbars: slim, visible track well ────────────────────────
 // NOTE: qdarktheme's own handle rules carry large margins (4px/14px); without
 // an explicit margin reset here the handle collapses to zero width.

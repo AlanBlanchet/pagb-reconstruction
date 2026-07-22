@@ -9,6 +9,16 @@ from pagb_reconstruction.core.ebsd_map import EBSDMap
 from pagb_reconstruction.core.phase import PhaseConfig
 
 
+def test_from_grid_inverts_to_grid(synthetic_multi_parent):
+    emap, _, _ = synthetic_multi_parent
+    n = emap.quaternions.shape[0]
+    flat = np.arange(n, dtype=np.int32)
+    assert np.array_equal(emap.from_grid(emap._to_grid(flat, fill=-1)), flat)
+    # a per-pixel vector field (n, 4) round-trips too — used by orientation maps
+    vec = np.random.default_rng(0).random((n, 4))
+    assert np.allclose(emap.from_grid(emap._to_grid(vec)), vec)
+
+
 def _make_map(with_holes: bool):
     ny, nx = 4, 4
     yy, xx = np.mgrid[0:ny, 0:nx]

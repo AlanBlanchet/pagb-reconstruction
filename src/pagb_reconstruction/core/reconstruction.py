@@ -18,6 +18,7 @@ from pagb_reconstruction.core.graph import (
 from pagb_reconstruction.core.orientation_relationship import OrientationRelationship
 from pagb_reconstruction.utils.array_ops import (
     grain_index_map,
+    majority_smooth,
     remap_labels,
 )
 from pagb_reconstruction.utils.compute import Quaternions
@@ -78,6 +79,16 @@ class ReconstructionConfig(Displayable):
         default=50,
         title="Merge islands ≤ (px)",
         description="Parent clusters smaller than this (total pixels) are merged into neighbors",
+    )
+    boundary_smoothing: int = Field(
+        default=0,
+        ge=0,
+        le=10,
+        title="Boundary smoothing",
+        description="Straightens parent-grain boundaries with this many majority-"
+        "filter passes, so outlines follow the smooth prior-austenite envelope "
+        "rather than tracing the jagged lath seams pixel-for-pixel (MTEX smooth). "
+        "0 = off.",
     )
     gb_vote_threshold_deg: float = Field(
         default=3.5,
@@ -240,9 +251,10 @@ class ReconstructionEngine:
         variant_ids, packet_ids, block_ids, bain_ids = self._compute_variants()
 
         _progress("Done", 1.0)
+        parent_orientations, parent_grain_ids = self._finalize_pixel_maps()
         return ReconstructionResult(
-            parent_orientations=self._expand_to_pixels(self._parent_quats),
-            parent_grain_ids=self._expand_labels_to_pixels(),
+            parent_orientations=parent_orientations,
+            parent_grain_ids=parent_grain_ids,
             fit_angles=fit_angles,
             variant_ids=variant_ids,
             packet_ids=packet_ids,
@@ -283,9 +295,10 @@ class ReconstructionEngine:
         fit_angles = self._compute_fit_angles()
 
         _progress("Done", 1.0)
+        parent_orientations, parent_grain_ids = self._finalize_pixel_maps()
         return ReconstructionResult(
-            parent_orientations=self._expand_to_pixels(self._parent_quats),
-            parent_grain_ids=self._expand_labels_to_pixels(),
+            parent_orientations=parent_orientations,
+            parent_grain_ids=parent_grain_ids,
             fit_angles=fit_angles,
             variant_ids=variant_ids,
             packet_ids=packet_ids,
@@ -619,6 +632,27 @@ class ReconstructionEngine:
                 fit[grain.pixel_indices] = fit_per_grain[i]
 
         return fit
+
+    def _finalize_pixel_maps(self) -> tuple[np.ndarray, np.ndarray]:
+        """Per-pixel (orientation, parent-id) maps, optionally boundary-smoothed.
+
+        Smoothing straightens the raster parent outline so it reads as the
+        prior-austenite envelope, not the lath seams it otherwise traces
+        pixel-for-pixel (Eloïse #14). It touches only these display maps — fit
+        angles and variants are computed from the grain-level labels upstream, so
+        the reported statistics are unchanged."""
+        orientations = self._expand_to_pixels(self._parent_quats)
+        parent_ids = self._expand_labels_to_pixels()
+        n = self._config.boundary_smoothing
+        if n > 0 and parent_ids.size:
+            grid = majority_smooth(
+                self._map._to_grid(parent_ids, fill=-1), iterations=n, ignore=-1
+            )
+            parent_ids = self._map.from_grid(grid).astype(np.int32)
+            assigned = (parent_ids >= 0) & (parent_ids < len(self._parent_quats))
+            orientations = orientations.copy()
+            orientations[assigned] = self._parent_quats[parent_ids[assigned]]
+        return orientations, parent_ids
 
     def _expand_to_pixels(self, parent_quats: np.ndarray) -> np.ndarray:
         n_pixels = self._map.quaternions.shape[0]

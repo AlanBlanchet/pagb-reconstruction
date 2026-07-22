@@ -50,6 +50,32 @@ def test_spinboxes_ignore_wheel_until_focused(qtbot):
     assert box.value() == 51, "a focused spinbox must still respond to the wheel"
 
 
+def test_block_wheel_swallows_the_wheel_on_a_canvas(qtbot):
+    """A diagnostic plot / canvas must not zoom on scroll. pyqtgraph plots use
+    setMouseEnabled(False); a matplotlib canvas (the pole figure) has no such
+    switch, so block_wheel filters the wheel out entirely — Alan: 'we can scroll
+    for each stat plot ... Very weird.'"""
+    from PySide6.QtCore import QEvent, QPoint, Qt
+    from PySide6.QtGui import QFocusEvent, QWheelEvent
+    from PySide6.QtWidgets import QWidget
+
+    from pagb_reconstruction.ui.widgets.wheel_guard import block_wheel
+
+    w = QWidget()
+    qtbot.addWidget(w)
+    block_wheel(w)
+    blocker = w._wheel_blocker
+
+    wheel = QWheelEvent(
+        QPoint(5, 5), QPoint(5, 5), QPoint(0, 0), QPoint(0, 120),
+        Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase, False,
+    )
+    assert blocker.eventFilter(w, wheel) is True, "the wheel must be swallowed"
+    # every other event passes straight through
+    assert blocker.eventFilter(w, QFocusEvent(QEvent.Type.FocusIn)) is False
+
+
 def test_guard_removes_wheel_focus_policy(qtbot):
     """A guarded control must not take focus FROM the wheel itself.
 

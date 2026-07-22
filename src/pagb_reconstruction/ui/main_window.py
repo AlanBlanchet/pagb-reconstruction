@@ -46,9 +46,7 @@ from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
 from pagb_reconstruction.ui.widgets.or_panel import ORPanel
 from pagb_reconstruction.ui.widgets.param_panel import ParamPanel
 from pagb_reconstruction.ui.widgets.phase_panel import PhasePanel
-from pagb_reconstruction.ui.widgets.misorientation_panel import MisorientationPanel
 from pagb_reconstruction.ui.widgets.parent_review import ParentReviewPanel
-from pagb_reconstruction.ui.widgets.pole_figure import PoleFigureWidget
 from pagb_reconstruction.ui.widgets.reconstruction_panel import ReconstructionPanel
 from pagb_reconstruction.ui.widgets.stats_dashboard import StatsDashboard
 from pagb_reconstruction.ui.widgets.summary_panel import SummaryPanel
@@ -108,11 +106,11 @@ class MainWindow(QMainWindow):
         self._phase_panel = PhasePanel()
         self._or_panel = ORPanel()
         self._reconstruction_panel = ReconstructionPanel()
+        # The pole figure + misorientation spectrum used to be their own cramped
+        # docks; they are now plots inside the Statistics browser.
         self._stats_dashboard = StatsDashboard()
         self._summary_panel = SummaryPanel()
-        self._pole_figure = PoleFigureWidget()
         self._parent_review = ParentReviewPanel()
-        self._misorientation_panel = MisorientationPanel()
 
         self._grain_info = QWidget()
         self._grain_form = QFormLayout(self._grain_info)
@@ -202,12 +200,6 @@ class MainWindow(QMainWindow):
             Qt.DockWidgetArea.BottomDockWidgetArea,
             bottom_min,
         )
-        dock_pole = self._add_dock(
-            "Poles",
-            self._pole_figure,
-            Qt.DockWidgetArea.BottomDockWidgetArea,
-            bottom_min,
-        )
         dock_log = self._add_dock(
             "Log",
             self._log_text,
@@ -220,12 +212,6 @@ class MainWindow(QMainWindow):
             Qt.DockWidgetArea.BottomDockWidgetArea,
             bottom_min,
         )
-        dock_misor = self._add_dock(
-            "Misorientation",
-            self._misorientation_panel,
-            Qt.DockWidgetArea.BottomDockWidgetArea,
-            bottom_min,
-        )
         dock_parents = self._add_dock(
             "Parents",
             self._parent_review,
@@ -235,16 +221,13 @@ class MainWindow(QMainWindow):
 
         self.tabifyDockWidget(dock_recon, dock_stats)
         self.tabifyDockWidget(dock_stats, dock_summary)
-        self.tabifyDockWidget(dock_summary, dock_pole)
-        self.tabifyDockWidget(dock_pole, dock_misor)
-        self.tabifyDockWidget(dock_misor, dock_parents)
+        self.tabifyDockWidget(dock_summary, dock_parents)
         self.tabifyDockWidget(dock_parents, dock_log)
         dock_recon.raise_()
         self._make_dock_tabs_scrollable()
 
         self._bottom_docks = [
-            dock_recon, dock_stats, dock_summary, dock_pole, dock_misor,
-            dock_parents, dock_log,
+            dock_recon, dock_stats, dock_summary, dock_parents, dock_log,
         ]
         self._right_dock = dock_params
 
@@ -255,9 +238,7 @@ class MainWindow(QMainWindow):
             "Info": dock_grain_info,
             "Reconstruction": dock_recon,
             "Statistics": dock_stats,
-            "Poles": dock_pole,
             "Summary": dock_summary,
-            "Misorientation": dock_misor,
             "Parents": dock_parents,
             "Log": dock_log,
         }
@@ -519,7 +500,7 @@ class MainWindow(QMainWindow):
     # stage -> (right dock to raise, bottom dock to raise)
     _STAGE_PANELS = {
         "phases": ("Phases", None),
-        "or": ("OR", "Misorientation"),
+        "or": ("OR", None),
         "params": ("Params", None),
         "run": (None, "Reconstruction"),
         "review": ("Info", "Parents"),
@@ -530,7 +511,6 @@ class MainWindow(QMainWindow):
     _DOCK_STAGE = {
         "Phases": "phases",
         "OR": "or",
-        "Misorientation": "or",
         "Params": "params",
         "Reconstruction": "run",
         "Parents": "review",
@@ -852,6 +832,8 @@ class MainWindow(QMainWindow):
     def _connect_signals(self):
         self._reconstruction_panel.run_requested.connect(self._run_reconstruction)
         self._reconstruction_panel.compare_requested.connect(self._open_compare)
+        self._reconstruction_panel.optimize_requested.connect(self._auto_optimize)
+        self._reconstruction_panel.optimize_finished.connect(self._on_compare_chosen)
         self._reconstruction_panel.reconstruction_finished.connect(
             self._on_reconstruction_done
         )
@@ -914,9 +896,9 @@ class MainWindow(QMainWindow):
     def _on_or_changed(self, or_name: str):
         self._status_bar.showMessage(f"OR changed to: {or_name}")
         self._log(f"OR changed to: {or_name}")
-        # The chart compares the measured spectrum against THIS OR's peaks, so it
-        # is wrong the moment the selection changes.
-        self._misorientation_panel.set_or_type(or_name)
+        # The spectrum plot compares the measured misorientations against THIS
+        # OR's peaks, so it is wrong the moment the selection changes.
+        self._stats_dashboard.set_context(or_type=or_name)
 
     def _on_roi_changed(self, x, y, w, h):
         self._status_bar.showMessage(f"ROI: ({x}, {y}) {w}\u00d7{h} px")
@@ -1011,8 +993,13 @@ class MainWindow(QMainWindow):
             rows, cols = self._ebsd_map.shape
             if rows:
                 self._fit_layout_to_map_aspect(cols / rows)
-            self._misorientation_panel.set_ebsd_map(self._ebsd_map)
-            self._misorientation_panel.set_or_type(self._or_panel.get_or_type())
+            # Feed the browser now so the spectrum + pole figure are available
+            # (and correct for this OR) even before a reconstruction runs.
+            self._stats_dashboard.set_context(
+                ebsd_map=self._ebsd_map,
+                or_type=self._or_panel.get_or_type(),
+                result=None,
+            )
             self._phase_panel.set_phases(
                 self._ebsd_map.phases, self._ebsd_map.phase_ids
             )
@@ -1061,7 +1048,30 @@ class MainWindow(QMainWindow):
         dlg.run_chosen.connect(self._on_compare_chosen)
         dlg.exec()
 
+    def _auto_optimize(self):
+        if self._ebsd_map is None:
+            self._status_bar.showMessage("No data loaded")
+            return
+        for d in self._bottom_docks:
+            d.show()
+        self._docks["Reconstruction"].raise_()
+        config = self._param_panel.get_config()
+        config_dict = config.model_dump()
+        config_dict["or_type"] = self._or_panel.get_or_type()
+        base = ReconstructionConfig(**config_dict)
+        self._reconstruction_panel.start_auto_optimize(self._ebsd_map, base)
+        self._progress_bar.setVisible(True)
+        self._progress_bar.setRange(0, 0)
+        self._task_manager.submit("reconstruction", "Auto-optimize")
+        self._log("Auto-optimize started — sweeping merge + clustering parameters")
+        self._recon_start = datetime.now()
+
     def _on_compare_chosen(self, run):
+        if run is None:  # auto-optimize failed; keep the previous result
+            self._progress_bar.setVisible(False)
+            self._task_manager.complete("reconstruction", "error")
+            self._status_bar.showMessage("Auto-optimize failed — previous result kept")
+            return
         # Adopt the winning parameters; if the comparison ran on the full map its
         # result is directly usable, otherwise the user re-runs on the full map.
         self._param_panel.set_config(run.config)
@@ -1092,8 +1102,8 @@ class MainWindow(QMainWindow):
         self._progress_bar.setVisible(False)
         self._stop_action.setEnabled(False)
         if result is None:
-            # Keep the previous result: it feeds Poles, Parents and export, and
-            # overwriting it with None wipes them all with no undo.
+            # Keep the previous result: it feeds Statistics, Parents and export,
+            # and overwriting it with None wipes them all with no undo.
             kept = " \u2014 previous result kept" if self._result is not None else ""
             self._status_bar.showMessage(f"Reconstruction failed{kept}")
             self._task_manager.complete("reconstruction", "error")
@@ -1104,11 +1114,14 @@ class MainWindow(QMainWindow):
         self._task_manager.complete("reconstruction", "done")
         self._map_viewer.set_reconstruction_result(result)
         self._parent_review.set_result(result)
-        self._stats_dashboard.update_stats(result, self._ebsd_map, elapsed=elapsed)
+        self._stats_dashboard.set_context(
+            result=result,
+            ebsd_map=self._ebsd_map,
+            or_type=self._or_panel.get_or_type(),
+        )
         self._summary_panel.update_stats(result, self._ebsd_map, elapsed=elapsed)
         if result.optimized_or is not None:
             self._or_panel.set_optimized_or(result.optimized_or)
-        self._pole_figure.set_orientations(result.parent_orientations)
         # Multi-metric fit readout (Taylor et al. 2024): area-weighted parent size
         # is the headline "closeness to reality" number, alongside % reconstructed
         # and the OR fit-angle distribution. Lets the user vary params for best fit.

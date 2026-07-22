@@ -60,6 +60,49 @@ def region_boundary_segments(
     return xs, ys
 
 
+def majority_smooth(
+    labels: np.ndarray,
+    iterations: int = 1,
+    ignore: int = -1,
+    min_agree: int = 5,
+) -> np.ndarray:
+    """Straighten raster region boundaries by an iterated 8-neighbour majority.
+
+    A pixel flips to the label held by ``>= min_agree`` of its 8 neighbours,
+    which erases single-pixel fingers and staircase jaggies while leaving a
+    straight boundary — where each side keeps its own majority — as a fixed
+    point. This is the raster analogue of MTEX ``smooth(grains)``: it makes the
+    parent-grain outline read as the smooth prior-austenite envelope instead of
+    tracing every lath seam pixel-for-pixel (Eloïse, issue #14).
+
+    ``ignore`` cells (unreconstructed, id ``-1``) are inviolate — they never
+    flip, and no pixel flips *into* them — so boundaries straighten without the
+    reconstructed region growing or eroding.
+    """
+    out = np.asarray(labels).copy()
+    if iterations <= 0 or out.ndim != 2:
+        return out
+
+    from scipy.stats import mode
+
+    rows, cols = out.shape
+    for _ in range(iterations):
+        padded = np.pad(out, 1, constant_values=ignore)
+        neighbours = np.stack(
+            [
+                padded[dr : dr + rows, dc : dc + cols]
+                for dr in (0, 1, 2)
+                for dc in (0, 1, 2)
+                if not (dr == 1 and dc == 1)  # the 8 neighbours, not the centre
+            ],
+            axis=0,
+        )
+        winner = mode(neighbours, axis=0, keepdims=False)
+        flip = (out != ignore) & (winner.mode != ignore) & (winner.count >= min_agree)
+        out = np.where(flip, winner.mode, out)
+    return out
+
+
 def align_hemisphere(quats: np.ndarray, ref: np.ndarray) -> np.ndarray:
     aligned = quats.copy()
     for k in range(len(aligned)):

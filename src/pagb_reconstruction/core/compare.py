@@ -89,6 +89,9 @@ def grid_configs(
     return out
 
 
+_AUSTENITE_ECD_BAND_UM = (15.0, 50.0)
+
+
 def rank_runs(runs: list[ComparisonRun], metric: str = "balanced") -> list[ComparisonRun]:
     """Best-first ordering of comparison runs.
 
@@ -97,20 +100,62 @@ def rank_runs(runs: list[ComparisonRun], metric: str = "balanced") -> list[Compa
     ``balanced``      both together — a run that reconstructs a sliver of the map
                       can show a beautiful fit while being useless, so fit is
                       weighted by coverage.
+    ``austenite``     ``balanced`` plus a penalty when the area-weighted parent
+                      size drifts out of the prior-austenite band (~15–50 µm):
+                      too small = still fragmented into laths, too large = the
+                      issue-#9 over-merged blob. This is what "optimise
+                      automatically / merge more" targets — realistic PAGs.
     """
     if metric == "fit":
         return sorted(runs, key=lambda r: r.quality.mean_fit_deg)
     if metric == "reconstructed":
         return sorted(runs, key=lambda r: -r.quality.pct_reconstructed)
-    if metric != "balanced":
+    if metric not in ("balanced", "austenite"):
         raise ValueError(f"unknown metric: {metric!r}")
+
+    lo, hi = _AUSTENITE_ECD_BAND_UM
 
     def score(run: ComparisonRun) -> float:
         coverage = max(run.quality.pct_reconstructed, 1e-6) / 100.0
         # misfit per unit of map actually explained: lower is better
-        return run.quality.mean_fit_deg / coverage
+        base = run.quality.mean_fit_deg / coverage
+        if metric == "balanced":
+            return base
+        ecd = run.quality.area_weighted_ecd_um
+        drift = max(0.0, (lo - ecd) / lo, (ecd - hi) / hi)
+        return base * (1.0 + drift)
 
     return sorted(runs, key=score)
+
+
+def auto_optimize(
+    emap: EBSDMap,
+    base: ReconstructionConfig | None = None,
+    progress_callback: Callable[[str, float], None] | None = None,
+) -> list[ComparisonRun]:
+    """One-click reconstruction tuning (Eloïse #14: "un bouton pour optimiser
+    automatiquement"). Sweeps the levers that trade fragmentation against
+    over-merge — how aggressively similar/enclosed parents fuse and how coarse
+    the clustering is — always with boundary smoothing on, then ranks by the
+    ``austenite`` metric so the winner is the most realistically-sized PAG map.
+
+    Returns the runs best-first; the caller adopts ``[0]`` (its config + result).
+    """
+    base = base or ReconstructionConfig()
+    # Straightened outlines + OR refined to the data are wanted for every trial.
+    base = base.model_copy(
+        update={"boundary_smoothing": max(base.boundary_smoothing, 3), "optimize_or": True}
+    )
+    candidates = [("current", base)] + grid_configs(
+        base,
+        {
+            "merge_similar_deg": [5.0, 8.0, 12.0],
+            "merge_inclusions_max_size": [150, 400],
+            "inflation_power": [1.4, 1.6],
+        },
+    )
+    runs = compare_configs(emap, candidates, progress_callback)
+    return rank_runs(runs, metric="austenite")
 
 
 def parent_map_rgb(emap: EBSDMap, result: ReconstructionResult) -> np.ndarray:

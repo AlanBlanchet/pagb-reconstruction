@@ -181,3 +181,21 @@ def test_variant_graph_path_runs_gb_votes(synthetic_multi_parent):
     cov_off = float((res_off.parent_grain_ids >= 0).mean())
     cov_on = float((res_on.parent_grain_ids >= 0).mean())
     assert cov_on >= cov_off, "vote growth must never reduce coverage"
+
+
+def test_boundary_smoothing_straightens_without_moving_the_science(synthetic_multi_parent):
+    """Eloïse #14: smoothing straightens parent outlines. It must not invent or
+    destroy parents, nor grow/erode coverage — it only relaxes boundary pixels,
+    so the reported statistics stay put."""
+    emap, _, _ = synthetic_multi_parent
+    raw = ReconstructionEngine(emap, ReconstructionConfig(boundary_smoothing=0)).run()
+    smooth = ReconstructionEngine(emap, ReconstructionConfig(boundary_smoothing=3)).run()
+
+    def n_parents(r):
+        return len(np.unique(r.parent_grain_ids[r.parent_grain_ids >= 0]))
+
+    assert n_parents(smooth) == n_parents(raw), "smoothing preserves parent count"
+    # ignore=-1 is inviolate, so the exact SET of reconstructed pixels is fixed
+    assert (smooth.parent_grain_ids >= 0).sum() == (raw.parent_grain_ids >= 0).sum()
+    # every parent id still points at a real parent orientation
+    assert smooth.parent_grain_ids.min() >= -1

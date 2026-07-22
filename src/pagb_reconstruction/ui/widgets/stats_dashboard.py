@@ -1,19 +1,31 @@
-import numpy as np
-import pyqtgraph as pg
+"""Statistics — a plot BROWSER, not a row of squished charts.
+
+The old dashboard crammed four charts into one short, wide grid row; the pole
+figure and misorientation spectrum lived in their own tiny separate docks. Alan:
+"the angular plot in its own panel is small and useless… stop making things all
+squishy and tight… we could have many other different plots."
+
+So this is a browser: a grouped selector on the left, ONE large focused plot on
+the right that owns the whole panel. Plots come from the ``stat_plots`` catalog,
+so "many other plots" is a one-line catalog entry, and none of them wheel-zoom on
+hover (the "weird per-plot scroll").
+"""
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog,
-    QGridLayout,
+    QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QSizePolicy,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from pagb_reconstruction.core.ebsd_map import EBSDMap
-from pagb_reconstruction.core.reconstruction import ReconstructionResult
-from pagb_reconstruction.ui.plotting import StyledPlot
-from pagb_reconstruction.ui.theme import active_theme
+from pagb_reconstruction.ui.widgets.stat_plots import CATALOG, PlotContext
+
+_UNSET = object()
 
 
 class StatCard(QWidget):
@@ -42,146 +54,125 @@ class StatCard(QWidget):
         self._value.setText(text)
 
 
-class ChartWidget(StyledPlot):
-    """A dashboard chart: a StyledPlot (copy/export/edit built in) that also
-    expands into a dialog on double-click."""
-
-    def __init__(self, title: str, x_label: str = "", y_label: str = ""):
-        super().__init__(title, x_label=x_label, y_label=y_label)
-        # Fits the bottom dock's shape: full-window WIDE but short. Kept at 120
-        # rather than 170 because these docks are TABIFIED — the whole bottom
-        # group's minimum height is the TALLEST tab's, so Statistics' floor was
-        # clamping the "Map" split preset to ~350px even when Log was showing.
-        # A live pass confirmed the charts stay legible down to ~90px plot boxes.
-        self._widget.setMinimumSize(200, 120)
-        self._widget.scene().sigMouseClicked.connect(self._on_click)
-
-    def plot(self) -> pg.PlotItem:
-        return self.plot_item
-
-    def _on_click(self, event):
-        if event.double():
-            self._show_expanded()
-
-    def _show_expanded(self):
-        dialog = QDialog(self)
-        dialog.setWindowTitle(self.title)
-        dialog.resize(600, 400)
-        layout = QVBoxLayout(dialog)
-        expanded = pg.PlotWidget()
-        expanded.setTitle(self.title)
-        expanded.showGrid(x=True, y=True, alpha=0.2)
-        p = active_theme()
-        expanded.setBackground(p.surface_dim)
-
-        source_plot = self.plot_item
-        for item in source_plot.listDataItems():
-            if hasattr(item, "getData"):
-                x, y = item.getData()
-                if x is not None and y is not None:
-                    expanded.plot(x, y, pen=item.opts.get("pen"))
-            elif hasattr(item, "opts") and "x" in item.opts:
-                expanded.addItem(
-                    pg.BarGraphItem(
-                        x=item.opts["x"],
-                        height=item.opts["height"],
-                        width=item.opts.get("width", 0.8),
-                        brush=item.opts.get("brush"),
-                    )
-                )
-        layout.addWidget(expanded)
-        dialog.exec()
-
-
 class StatsDashboard(QWidget):
+    """Grouped plot selector (left) + one large focused plot (right)."""
+
     def __init__(self):
         super().__init__()
-        self._ebsd_map: EBSDMap | None = None
-        self._result: ReconstructionResult | None = None
+        self._ctx = PlotContext()
+        self._built: dict[str, QWidget] = {}
+        self._current_key: str | None = None
         self._setup_ui()
 
     def _setup_ui(self):
-        outer = QVBoxLayout(self)
+        outer = QHBoxLayout(self)
         outer.setContentsMargins(4, 4, 4, 4)
+        outer.setSpacing(6)
 
-        self._chart_grid = QGridLayout()
-        self._chart_grid.setSpacing(4)
-
-        self._chart_grain_size = ChartWidget("Grain Size", "Size (px)", "Count")
-        self._chart_misori = ChartWidget("Misorientation", "Angle (\u00b0)", "Count")
-        self._chart_variants = ChartWidget("Variants", "Variant ID", "Pixels")
-        self._chart_fit = ChartWidget("Fit Angles", "Fit (\u00b0)", "Count")
-
-        # One row, not 2x2: the bottom dock has width to spare and no height to
-        # spare. Nothing else shares this panel, so the row cannot be starved.
-        for col, chart in enumerate(
-            (
-                self._chart_grain_size,
-                self._chart_misori,
-                self._chart_variants,
-                self._chart_fit,
-            )
-        ):
-            self._chart_grid.addWidget(chart, 0, col)
-        outer.addLayout(self._chart_grid, 1)
-
-    def update_stats(
-        self,
-        result: ReconstructionResult,
-        ebsd_map: EBSDMap | None = None,
-        elapsed: float = 0.0,
-    ):
-        self._result = result
-        self._ebsd_map = ebsd_map
-
-        p = active_theme()
-        parent_ids = result.parent_grain_ids
-        unique_parents = np.unique(parent_ids[parent_ids >= 0])
-        fit_valid = result.fit_angles[~np.isnan(result.fit_angles)]
-
-        sizes = np.array([int(np.sum(parent_ids == pid)) for pid in unique_parents])
-        self._plot_grain_size(sizes, p)
-        misori = ebsd_map.misorientation_angles() if ebsd_map else fit_valid
-        self._plot_misorientation(misori, p)
-        self._plot_variants(result, p)
-        self._plot_fit_angles(fit_valid, p)
-
-    def _plot_grain_size(self, sizes: np.ndarray, p):
-        self._chart_grain_size.clear()
-        if len(sizes) == 0:
-            return
-        hist, bin_edges = np.histogram(sizes, bins=min(30, len(sizes)))
-        x = (bin_edges[:-1] + bin_edges[1:]) / 2
-        width = (bin_edges[1] - bin_edges[0]) * 0.8
-        bar = pg.BarGraphItem(x=x, height=hist, width=width, brush=p.accent)
-        self._chart_grain_size.plot().addItem(bar)
-
-    def _plot_misorientation(self, fit_valid: np.ndarray, p):
-        self._chart_misori.clear()
-        if len(fit_valid) == 0:
-            return
-        hist, bin_edges = np.histogram(fit_valid, bins=50)
-        x = (bin_edges[:-1] + bin_edges[1:]) / 2
-        self._chart_misori.plot().plot(x, hist, pen=pg.mkPen(p.warning, width=2))
-
-    def _plot_variants(self, result: ReconstructionResult, p):
-        self._chart_variants.clear()
-        variant_ids = result.variant_ids
-        valid = variant_ids[variant_ids >= 0]
-        if len(valid) == 0:
-            return
-        unique_v, counts = np.unique(valid, return_counts=True)
-        bar = pg.BarGraphItem(
-            x=unique_v.astype(float), height=counts, width=0.8, brush=p.info
+        self._selector = QListWidget()
+        self._selector.setObjectName("plotSelector")
+        self._selector.setFixedWidth(176)
+        self._selector.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        self._chart_variants.plot().addItem(bar)
+        self._selector.currentItemChanged.connect(self._on_select)
+        outer.addWidget(self._selector)
 
-    def _plot_fit_angles(self, fit_valid: np.ndarray, p):
-        self._chart_fit.clear()
-        if len(fit_valid) == 0:
+        self._host = QStackedWidget()
+        self._placeholder = QLabel("Run a reconstruction to see statistics.")
+        self._placeholder.setObjectName("plotPlaceholder")
+        self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._host.addWidget(self._placeholder)
+        outer.addWidget(self._host, 1)
+
+        self._populate_selector()
+
+    # ── context ────────────────────────────────────────────────────
+    def set_context(self, *, result=_UNSET, ebsd_map=_UNSET, or_type=_UNSET):
+        """Merge in whatever changed (loaded map, chosen OR, finished result) and
+        refresh the plot list; unspecified fields keep their current value."""
+        r = self._ctx.result if result is _UNSET else result
+        e = self._ctx.ebsd_map if ebsd_map is _UNSET else ebsd_map
+        o = self._ctx.or_type if or_type is _UNSET else or_type
+        self._ctx = PlotContext(result=r, ebsd_map=e, or_type=o)
+        self._clear_built()
+        self._populate_selector()
+
+    def update_stats(self, result, ebsd_map=None, or_type: str = "", elapsed: float = 0.0):
+        # Retained call shape for the reconstruction-done path.
+        self.set_context(result=result, ebsd_map=ebsd_map, or_type=or_type)
+
+    def _clear_built(self):
+        while self._host.count() > 1:
+            w = self._host.widget(1)
+            self._host.removeWidget(w)
+            w.deleteLater()
+        self._built.clear()
+
+    # ── selector ───────────────────────────────────────────────────
+    def _available(self):
+        # A plot whose data probe raises on this context is simply not offered,
+        # never a crash — the browser must survive partial / stub contexts.
+        out = []
+        for entry in CATALOG:
+            try:
+                if entry.available(self._ctx):
+                    out.append(entry)
+            except Exception:  # noqa: BLE001 — unavailable, not fatal
+                continue
+        return out
+
+    def _populate_selector(self):
+        self._selector.blockSignals(True)
+        self._selector.clear()
+        available = self._available()
+        keys = [e.key for e in available]
+        target = self._current_key if self._current_key in keys else (
+            keys[0] if keys else None
+        )
+        by_cat: dict[str, list] = {}
+        for e in available:
+            by_cat.setdefault(e.category, []).append(e)
+        for category, entries in by_cat.items():
+            header = QListWidgetItem(category.upper())
+            header.setFlags(Qt.ItemFlag.NoItemFlags)  # a non-selectable group label
+            font = header.font()
+            font.setBold(True)
+            header.setFont(font)
+            self._selector.addItem(header)
+            for e in entries:
+                item = QListWidgetItem(e.title)
+                item.setData(Qt.ItemDataRole.UserRole, e.key)
+                self._selector.addItem(item)
+        self._selector.blockSignals(False)
+        self._select_key(target)
+
+    def _select_key(self, key: str | None):
+        if key is None:
+            self._current_key = None
+            self._host.setCurrentWidget(self._placeholder)
             return
-        hist, bin_edges = np.histogram(fit_valid, bins=40)
-        x = (bin_edges[:-1] + bin_edges[1:]) / 2
-        width = (bin_edges[1] - bin_edges[0]) * 0.8
-        bar = pg.BarGraphItem(x=x, height=hist, width=width, brush=p.success)
-        self._chart_fit.plot().addItem(bar)
+        for i in range(self._selector.count()):
+            item = self._selector.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == key:
+                self._selector.setCurrentItem(item)  # fires _on_select → _show
+                return
+
+    def _on_select(self, current: QListWidgetItem | None, _previous):
+        if current is None:
+            return
+        key = current.data(Qt.ItemDataRole.UserRole)
+        if key:
+            self._show(key)
+
+    def _show(self, key: str):
+        self._current_key = key
+        if key not in self._built:
+            entry = next((e for e in CATALOG if e.key == key), None)
+            if entry is None:
+                self._host.setCurrentWidget(self._placeholder)
+                return
+            widget = entry.build(self._ctx)
+            self._built[key] = widget
+            self._host.addWidget(widget)
+        self._host.setCurrentWidget(self._built[key])

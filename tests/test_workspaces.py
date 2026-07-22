@@ -70,7 +70,7 @@ def test_analyze_profile_shows_the_result_docks(qtbot):
     from pagb_reconstruction.ui.workspaces import PROFILES
 
     visible = set(PROFILES["Analyze"].visible)
-    for name in ("Statistics", "Summary", "Misorientation", "Parents", "Poles"):
+    for name in ("Statistics", "Summary", "Parents"):
         assert name in visible, f"Analyze hides {name}, a reconstruction result panel"
 
 

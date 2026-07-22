@@ -157,7 +157,7 @@ def test_bottom_docks_cannot_squeeze_the_canvas(qtbot):
     w._cap_bottom_docks()
 
     ceiling = max(200, w.height() - 220)
-    for name in ("Reconstruction", "Statistics", "Poles", "Log"):
+    for name in ("Reconstruction", "Statistics", "Summary", "Log"):
         dock = w._docks[name]
         assert dock.maximumHeight() <= ceiling, f"{name} can grow without bound"
     # The canvas keeps a readable floor. Deliberately NOT a fraction of the
@@ -257,7 +257,7 @@ def test_docks_added_after_a_saved_layout_are_not_lost(qtbot):
 
     # Simulate an older release's saved layout: state blob plus the dock names
     # that existed at the time, minus the ones added since.
-    older = known - {"Summary", "Misorientation", "Parents"}
+    older = known - {"Summary", "Parents"}
     settings = QSettings("PAGB", "pagb-reconstruction-test-restore")
     settings.setValue("window_state", first.saveState())
     settings.setValue("dock_names", sorted(older))
@@ -270,7 +270,7 @@ def test_docks_added_after_a_saved_layout_are_not_lost(qtbot):
     qtbot.waitExposed(second)
     qtbot.wait(50)
 
-    for name in ("Summary", "Misorientation", "Parents"):
+    for name in ("Summary", "Parents"):
         assert not second._docks[name].isHidden(), (
             f"{name} was added after the saved layout and stayed hidden — the "
             "user can only recover it through the View menu"
@@ -355,7 +355,7 @@ def test_upgrade_with_no_dock_names_key_still_reveals(qtbot):
     qtbot.waitExposed(second)
     qtbot.wait(50)
 
-    for name in ("Summary", "Misorientation", "Parents"):
+    for name in ("Summary", "Parents"):
         assert not second._docks[name].isHidden(), (
             f"{name} stayed hidden on a layout saved before dock_names existed"
         )
@@ -380,7 +380,7 @@ def test_docks_added_after_a_saved_layout_are_not_lost(qtbot):
 
     # Simulate an older release's saved layout: state blob plus the dock names
     # that existed at the time, minus the ones added since.
-    older = known - {"Summary", "Misorientation", "Parents"}
+    older = known - {"Summary", "Parents"}
     settings = QSettings("PAGB", "pagb-reconstruction-test-restore")
     settings.setValue("window_state", first.saveState())
     settings.setValue("dock_names", sorted(older))
@@ -393,7 +393,7 @@ def test_docks_added_after_a_saved_layout_are_not_lost(qtbot):
     qtbot.waitExposed(second)
     qtbot.wait(50)
 
-    for name in ("Summary", "Misorientation", "Parents"):
+    for name in ("Summary", "Parents"):
         assert not second._docks[name].isHidden(), (
             f"{name} was added after the saved layout and stayed hidden — the "
             "user can only recover it through the View menu"
@@ -478,7 +478,7 @@ def test_upgrade_with_no_dock_names_key_still_reveals(qtbot):
     qtbot.waitExposed(second)
     qtbot.wait(50)
 
-    for name in ("Summary", "Misorientation", "Parents"):
+    for name in ("Summary", "Parents"):
         assert not second._docks[name].isHidden(), (
             f"{name} stayed hidden on a layout saved before dock_names existed"
         )

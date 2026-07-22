@@ -38,6 +38,7 @@ _PRESETS = {
         gb_vote_min_prob=0.5,
         merge_similar_deg=5.0,
         merge_inclusions_max_size=150,
+        boundary_smoothing=4,
     ),
     "Fine": ReconstructionConfig(
         threshold_deg=1.5,
@@ -68,6 +69,7 @@ _PRESETS = {
         merge_similar_deg=8.0,
         inflation_power=1.3,
         min_parent_size_um=5.0,
+        boundary_smoothing=3,
     ),
 }
 
@@ -82,10 +84,16 @@ _FIELD_GROUPS = {
         "inflation_power",
         "min_cluster_size",
     ],
+    "Boundary-vote growth": [
+        "gb_vote_threshold_deg",
+        "gb_vote_iterations",
+        "gb_vote_min_prob",
+    ],
     "Post-processing": [
         "revert_threshold_deg",
         "merge_similar_deg",
         "merge_inclusions_max_size",
+        "boundary_smoothing",
         "min_parent_size_um",
         "n_vote_iterations",
     ],

@@ -1,11 +1,10 @@
-"""The misorientation histogram lives in its own dock, not the OR sidebar.
+"""The misorientation spectrum is a plot in the Statistics BROWSER now.
 
-Two independent live measurements found the chart unreadable inside the OR
-sidebar: it shares one QScrollArea with two text-heavy group boxes that consume
-the viewport budget first, so at a 900px window only ~38px remained and no axis
-or curve rendered at all. Raising the plot's own minimumHeight cannot fix that —
-the constraint is total sidebar content vs viewport, not any one widget's floor.
-So the chart gets a container with its own vertical budget.
+It (and the pole figure) used to each own a cramped bottom dock; Alan asked to
+stop making things "squishy and tight", so both fold into the Statistics browser
+where a selected plot owns the whole panel. It stays out of the OR sidebar (two
+live measurements found it unreadable there — starved of height by two text-heavy
+group boxes in one shared scroll area).
 """
 
 
@@ -20,18 +19,26 @@ def test_histogram_is_not_in_the_or_sidebar(qtbot):
     )
 
 
-def test_misorientation_dock_exists_in_the_wide_bottom_group(qtbot):
+def test_spectrum_is_a_browser_plot_not_its_own_dock(qtbot):
     from pagb_reconstruction.ui.main_window import MainWindow
+    from pagb_reconstruction.ui.widgets.stat_plots import CATALOG
 
     w = MainWindow()
     qtbot.addWidget(w)
 
-    assert "Misorientation" in w._docks, "misorientation chart needs its own dock"
-    dock = w._docks["Misorientation"]
-    assert dock in w._bottom_docks, (
-        "it belongs in the bottom group, which is full-window width, not the "
-        "380px right sidebar"
-    )
+    assert "Misorientation" not in w._docks, "spectrum is folded into the browser"
+    assert any(e.key == "spectrum" for e in CATALOG), "spectrum is a catalog plot"
+
+
+def test_spectrum_plot_does_not_wheel_zoom(qtbot):
+    """Alan: 'we can scroll for each stat plot ... Very weird.' The spectrum's
+    bare PlotWidget zoomed on wheel; it must be inert now."""
+    from pagb_reconstruction.ui.widgets.misorientation_panel import MisorientationPanel
+
+    panel = MisorientationPanel()
+    qtbot.addWidget(panel)
+    vb = panel._hist_plot.getPlotItem().getViewBox()
+    assert list(vb.state["mouseEnabled"]) == [False, False], "spectrum must not zoom"
 
 
 def test_misorientation_panel_follows_the_selected_or(qtbot, sample_ebsd):
