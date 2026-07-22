@@ -798,6 +798,12 @@ class MainWindow(QMainWindow):
         clear_roi_action.triggered.connect(self._clear_roi)
         toolbar.addAction(clear_roi_action)
 
+        fps_action = QAction("FPS", self)
+        fps_action.setToolTip("Show a frames-per-second counter on the map")
+        fps_action.setCheckable(True)
+        fps_action.toggled.connect(self._map_viewer.set_fps_visible)
+        toolbar.addAction(fps_action)
+
         toolbar.addSeparator()
 
         reset_action = QAction(icon("reset"), "Reset", self)
@@ -915,12 +921,10 @@ class MainWindow(QMainWindow):
         flat = self._ebsd_map.pixel_index_at(y, x)
         if flat < 0:
             return
-        euler = self._ebsd_map.crystal_map.rotations.to_euler(degrees=True)
-        phi1, Phi, phi2 = euler[flat]
+        phi1, Phi, phi2 = self._ebsd_map.pixel_euler(flat)
         pid = int(self._ebsd_map.phase_ids[flat])
         pname = self._ebsd_map.phase_name(pid)
-        bc_map = self._ebsd_map.band_contrast_map()
-        iq = bc_map[y, x]
+        iq = self._ebsd_map.band_contrast_map()[y, x]
         self._status_bar.showMessage(
             f"x: {x}  y: {y} | Phase: {pname} | "
             f"\u03c6\u2081={phi1:.1f}\u00b0 \u03a6={Phi:.1f}\u00b0 \u03c6\u2082={phi2:.1f}\u00b0 | "
@@ -936,8 +940,7 @@ class MainWindow(QMainWindow):
         flat = self._ebsd_map.pixel_index_at(y, x)
         if flat < 0:
             return
-        euler = self._ebsd_map.crystal_map.rotations.to_euler(degrees=True)
-        phi1, Phi, phi2 = euler[flat]
+        phi1, Phi, phi2 = self._ebsd_map.pixel_euler(flat)
         pid = int(self._ebsd_map.phase_ids[flat])
         pname = self._ebsd_map.phase_name(pid)
 

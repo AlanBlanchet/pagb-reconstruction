@@ -559,6 +559,81 @@ def test_scalebar_grows_rightward_for_bottom_left_anchor(qtbot):
     assert bar.text.pos().x() > 0.0
 
 
+def test_parent_boundary_pen_is_thin(qtbot):
+    """The outlines were too heavy on a full map with hundreds of parents; a 1 px
+    cosmetic pen keeps them crisp without swamping the view ("just big black
+    lines everywhere")."""
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    assert w._parent_boundary_item.opts["pen"].widthF() <= 1.0
+
+
+def test_hover_reads_one_pixel_not_the_whole_map(qtbot):
+    """Regression: the hover handler converted EVERY orientation to Euler on each
+    mouse-move (~170 ms on a 334k-pixel map — the lag). It must read one pixel."""
+    import numpy as np
+    from PySide6.QtCore import QPointF
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    calls = {"pixel_euler": 0}
+
+    class _Rot:
+        def to_euler(self, degrees=True):
+            raise AssertionError("hover converted ALL orientations — the lag bug")
+
+    class _CM:
+        rotations = _Rot()
+
+    class _FakeMap:
+        shape = (6, 8)
+        phase_ids = np.zeros(48, dtype=int)
+        crystal_map = _CM()
+
+        def pixel_index_at(self, y, x):
+            return y * 8 + x
+
+        def pixel_euler(self, flat):
+            calls["pixel_euler"] += 1
+            return (1.0, 2.0, 3.0)
+
+        def phase_name(self, pid):
+            return "ferrite"
+
+        def band_contrast_map(self):
+            return np.zeros((6, 8))
+
+    class _Pt:
+        def x(self):
+            return 3.0
+
+        def y(self):
+            return 2.0
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    w._ebsd_map = _FakeMap()
+    w._plot.vb.mapSceneToView = lambda pos: _Pt()
+
+    w._on_mouse_move((QPointF(0, 0),))  # must not raise, must read one pixel
+    assert calls["pixel_euler"] == 1
+
+
+def test_fps_counter_toggles(qtbot):
+    """The FPS counter is off by default and shows when toggled on."""
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    assert w._fps_label.isHidden()
+    w.set_fps_visible(True)
+    assert not w._fps_label.isHidden()
+    w.set_fps_visible(False)
+    assert w._fps_label.isHidden()
+
+
 def test_scalebar_label_carries_a_number(qtbot, sample_ebsd):
     """The bar label must state a length, not just the unit — a bar reading only
     "µm" conveys no scale."""

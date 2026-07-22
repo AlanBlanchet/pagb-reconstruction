@@ -224,3 +224,21 @@ def test_parent_boundary_segments_trace_parent_regions():
     assert xs.size > 0, "two adjacent parents must produce a boundary"
     # the only boundary is the vertical line at x=2
     assert set(np.round(xs, 3)) == {2.0}
+
+
+def test_pixel_euler_matches_full_conversion():
+    """Hover reads ONE pixel's Euler angles; the single-pixel path must equal the
+    old convert-everything path (whose per-hover cost was the lag)."""
+    emap = _make_map(with_holes=False)
+    full = emap.crystal_map.rotations.to_euler(degrees=True)
+    for flat in (0, 5, 11, 15):
+        assert np.allclose(emap.pixel_euler(flat), full[flat], atol=1e-6)
+
+
+def test_pixel_index_at_is_arithmetic_for_dense_maps():
+    """A dense map indexes in O(1) (row*cols+col), not an O(N) scan every hover."""
+    emap = _make_map(with_holes=False)  # 4x4 dense
+    rows, cols = emap.shape
+    assert emap.pixel_index_at(2, 3) == 2 * cols + 3
+    assert emap.pixel_index_at(-1, 0) == -1
+    assert emap.pixel_index_at(0, cols) == -1

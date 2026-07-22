@@ -1,9 +1,18 @@
 import logging
+import time
 import warnings
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QEasingCurve, QPointF, QPropertyAnimation, QRectF, Qt, Signal
+from PySide6.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QPointF,
+    QPropertyAnimation,
+    QRectF,
+    Qt,
+    Signal,
+)
 from PySide6.QtGui import QAction, QFont, QPainter
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -107,6 +116,9 @@ class MapViewer(QWidget):
         self._colormap_name = "viridis"
         self._boundary_visible = False
         self._parent_boundary_visible = False
+        self._fps_visible = False
+        self._fps_last_t: float | None = None
+        self._fps_smooth: float | None = None
         self._current_image: np.ndarray | None = None
         self._hist_eq_enabled = False
         self._active_worker: ComputeWorker | None = None
@@ -160,12 +172,12 @@ class MapViewer(QWidget):
         self._plot.addItem(self._boundary_item)
         self._boundary_item.setVisible(False)
 
-        # Reconstructed parent (prior-austenite) boundaries: bold BLACK vector
-        # lines over the orientation map — the signature PAGB view. A cosmetic
-        # pen keeps them a constant width on screen, so they stay crisp whether
-        # the whole 700-px map or a single grain is in view (a rasterised mask
-        # would thin to nothing zoomed out). Above the yellow child boundaries.
-        _parent_pen = pg.mkPen(color=(0, 0, 0), width=2)
+        # Reconstructed parent (prior-austenite) boundaries: thin BLACK vector
+        # lines over the orientation map — the signature PAGB view. 1 px cosmetic
+        # so they stay crisp at any zoom (a rasterised mask would thin to nothing
+        # zoomed out) yet don't swamp a full map that has hundreds of parents.
+        # Above the yellow child boundaries.
+        _parent_pen = pg.mkPen(color=(0, 0, 0), width=1)
         _parent_pen.setCosmetic(True)
         self._parent_boundary_item = pg.PlotCurveItem(pen=_parent_pen)
         self._parent_boundary_item.setZValue(10.5)
@@ -265,6 +277,19 @@ class MapViewer(QWidget):
         self._axis_indicator.move(10, 8)
         self._axis_indicator.setVisible(False)
 
+        # Optional FPS counter (top-right). Measures the map view's real repaint
+        # rate, so a blocked event loop (e.g. a slow hover handler) reads as low
+        # fps. Off by default; toggled from the View toolbar. It watches the
+        # viewport's paint events via an event filter.
+        self._fps_label = QLabel("", self._graphics_view)
+        self._fps_label.setObjectName("fpsCounter")
+        self._fps_label.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._fps_label.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+        )
+        self._fps_label.setVisible(False)
+        self._graphics_view.viewport().installEventFilter(self)
+
         self._computing_overlay = QLabel("", self._graphics_view)
         self._computing_overlay.setObjectName("computingOverlay")
         # Without this a QLabel parented to a QGraphicsView ignores its
@@ -313,6 +338,45 @@ class MapViewer(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._position_overlay()
+
+    def eventFilter(self, obj, event):
+        if (
+            event.type() == QEvent.Type.Paint
+            and obj is self._graphics_view.viewport()
+            and self._fps_visible
+        ):
+            now = time.perf_counter()
+            if self._fps_last_t is not None:
+                dt = now - self._fps_last_t
+                if dt > 0:
+                    inst = 1.0 / dt
+                    self._fps_smooth = (
+                        inst
+                        if self._fps_smooth is None
+                        else 0.85 * self._fps_smooth + 0.15 * inst
+                    )
+                    self._fps_label.setText(f"{self._fps_smooth:.0f} fps")
+                    self._fps_label.adjustSize()
+                    self._fps_label.move(
+                        max(0, self._graphics_view.width() - self._fps_label.width() - 8),
+                        8,
+                    )
+            self._fps_last_t = now
+        return super().eventFilter(obj, event)
+
+    def set_fps_visible(self, visible: bool):
+        """Show/hide the FPS counter. Repaint timing only accrues while shown."""
+        self._fps_visible = bool(visible)
+        self._fps_smooth = None
+        self._fps_last_t = None
+        if visible:
+            self._fps_label.setText("— fps")
+            self._fps_label.adjustSize()
+            self._fps_label.move(
+                max(0, self._graphics_view.width() - self._fps_label.width() - 8), 8
+            )
+        self._fps_label.setVisible(visible)
+        self._fps_label.raise_()
 
     def _position_overlay(self):
         if self._computing_overlay.isVisible():
@@ -807,12 +871,12 @@ class MapViewer(QWidget):
                 self._status_strip.setText(f"  ({x}, {y})  |  not indexed")
                 self.pixel_hovered.emit(x, y)
                 return
-            euler = self._ebsd_map.crystal_map.rotations.to_euler(degrees=True)
-            phi1, Phi, phi2 = euler[flat]
+            # One pixel, not the whole map: converting all orientations to Euler
+            # here cost ~170 ms per mouse-move (the hover lag).
+            phi1, Phi, phi2 = self._ebsd_map.pixel_euler(flat)
             pid = int(self._ebsd_map.phase_ids[flat])
             pname = self._ebsd_map.phase_name(pid)
-            bc_map = self._ebsd_map.band_contrast_map()
-            iq = bc_map[y, x]
+            iq = self._ebsd_map.band_contrast_map()[y, x]
             self._status_strip.setText(
                 f"  ({x}, {y})  |  {pname}  |  "
                 f"\u03c6\u2081={phi1:.1f}\u00b0 \u03a6={Phi:.1f}\u00b0 \u03c6\u2082={phi2:.1f}\u00b0  |  "

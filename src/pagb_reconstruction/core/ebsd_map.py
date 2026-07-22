@@ -98,6 +98,8 @@ class EBSDMap(SpatialMap):
     parent_map: CrystalMap | None = None
     _result: Any = None
     _topology: PixelTopology | None = None
+    _band_contrast: np.ndarray | None = None
+    _rotations: Any = None
 
     def set_result(self, result: Any):
         self._result = result
@@ -112,9 +114,17 @@ class EBSDMap(SpatialMap):
     def orientations(self) -> Orientation:
         return self.crystal_map.orientations
 
+    def _rotation_data(self):
+        """Cached orix Rotation. ``crystal_map.rotations`` REBUILDS the whole
+        Rotation object on every access (~55 ms for 334k points), so reading it
+        per mouse-move — or per pixel in a profile loop — was pure overhead."""
+        if self._rotations is None:
+            self._rotations = self.crystal_map.rotations
+        return self._rotations
+
     @property
     def quaternions(self) -> np.ndarray:
-        return self.crystal_map.rotations.data
+        return self._rotation_data().data
 
     @property
     def coordinates(self) -> np.ndarray:
@@ -219,11 +229,28 @@ class EBSDMap(SpatialMap):
         return grid
 
     def pixel_index_at(self, grid_row: int, grid_col: int) -> int:
+        rows, cols = self.shape
+        if not (0 <= grid_row < rows and 0 <= grid_col < cols):
+            return -1
+        # Dense map: the pixel order IS row-major, so the index is arithmetic —
+        # no O(N) scan (this ran on every mouse-move, part of the hover lag).
+        if not self.is_sparse:
+            return grid_row * cols + grid_col
         rc = self.topology.pixel_to_rc
         matches = np.where((rc[:, 0] == grid_row) & (rc[:, 1] == grid_col))[0]
         if len(matches) == 0:
             return -1
         return int(matches[0])
+
+    def pixel_euler(self, flat_index: int) -> tuple[float, float, float]:
+        """Euler angles (degrees) for ONE pixel.
+
+        The hover readouts used ``crystal_map.rotations.to_euler()``, converting
+        EVERY orientation (~170 ms on a 334k-pixel map) just to read the one
+        under the cursor — the cause of the hover lag. This indexes the cached
+        Rotation and converts a single one (~1 ms)."""
+        e = self._rotation_data()[flat_index].to_euler(degrees=True).ravel()
+        return float(e[0]), float(e[1]), float(e[2])
 
     def property_map(self, name: str) -> np.ndarray:
         prop = self.crystal_map.prop.get(name)
@@ -287,13 +314,19 @@ class EBSDMap(SpatialMap):
 
     @map_property("Band Contrast", dtype="scalar", category="quality")
     def band_contrast_map(self) -> np.ndarray:
+        # Cached: it is derived from immutable scan data but was recomputed (a
+        # full-grid reshape/scatter) on every mouse-move.
+        if self._band_contrast is not None:
+            return self._band_contrast
         props = self.crystal_map.prop
         keys_lower = {k.lower(): k for k in props}
         for candidate in ("bc", "iq", "ci"):
             real_key = keys_lower.get(candidate)
             if real_key is not None:
-                return self._to_grid(props[real_key])
-        return np.zeros(self.shape)
+                self._band_contrast = self._to_grid(props[real_key])
+                return self._band_contrast
+        self._band_contrast = np.zeros(self.shape)
+        return self._band_contrast
 
     def primary_symmetry(self):
         """orix point-group Symmetry of the first indexed phase (for IPF keys)."""
