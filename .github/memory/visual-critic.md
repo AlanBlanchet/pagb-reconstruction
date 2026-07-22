@@ -200,3 +200,9 @@ Re-verified after `main_window.py` was rebuilt from HEAD (a bad scripted slice h
 - **PARTIAL FAIL fixed same turn**: the current-stage cue was click-driven only — manually raising a dock tab left the rail claiming the last rail-clicked stage, and "Load" stayed current forever. Now: every dock's `visibilityChanged` maps back to its stage (`_DOCK_STAGE`), stageless tabs (Statistics/Summary/Poles/Log) CLEAR the cue rather than lie, and Load restores the previous stage after its dialog (an action, not a destination). QButtonGroup made non-exclusive because an exclusive group forbids clearing.
 - Rail width 90px; boundary scan via PIL at x=0-150 mid-height row is fast and reliable for width/overflow checks. Rail accent = app-wide `rgb(79,140,255)`.
 - Session work committed: `b5d256989` (ergonomics: "controls must not lie"), `2a072fd` (decisions). Both by explicit pathspec.
+
+## 2026-07-22 — rail cue sync CONFIRMED live (4/4 PASS), item closed
+
+- Bidirectional cue verified on pixels: manual Parents click moved cue to Review unprompted; Params click moved it; Statistics CLEARED it (zero checked buttons on a full-rail pixel scan); Load → Cancel restored the prior stage. Startup + Reset Layout land sane; forward routing intact. No visibilityChanged storm misbehaviour observed.
+- **Read-the-rail method note**: move the mouse OFF the rail before reading its state — `:hover` (#232323) and `:checked` (#2c2c2c) are 9 levels apart on the dark theme, and a resting cursor mimics the checked look at a glance (the critic briefly false-read this itself).
+- **Advisory, not owed now** (critic's own framing: "if this recurs as a real user complaint"): (a) the common post-run landing (Statistics, stageless) lights zero rail buttons — truthful, but a first glance can read as "broken" for a second; consider whether stageless tabs should map to the nearest stage instead. (b) strengthen hover/checked separation if misreads recur.
