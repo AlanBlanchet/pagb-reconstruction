@@ -54,3 +54,39 @@ def test_no_plot_available_on_empty_context():
     from pagb_reconstruction.ui.widgets.stat_plots import CATALOG, PlotContext
 
     assert not any(e.available(PlotContext()) for e in CATALOG)
+
+
+# ── degenerate / low-cardinality data must not render as one solid block ──
+# visual-critic 2026-07-22: Fit angles (perfect fit → all zeros), Packets/Blocks
+# (no hierarchy in the sample), Phase fractions (2 categories) each filled the
+# whole plot with one colour instead of drawing discrete bars.
+
+
+def test_histogram_of_one_value_shows_a_note_not_a_plot_filling_bar(qtbot):
+    import pyqtgraph as pg
+
+    from pagb_reconstruction.ui.widgets.stat_plots import HistogramPlot, PlotContext
+
+    p = HistogramPlot(
+        key="x", title="Fit", category="Quality", x_label="°", y_label="n",
+        values=lambda ctx: np.zeros(50),  # a perfect fit: every value identical
+    )
+    w = p.build(PlotContext())
+    qtbot.addWidget(w)
+    bars = [it for it in w.plot_item.items if isinstance(it, pg.BarGraphItem)]
+    texts = [it for it in w.plot_item.items if isinstance(it, pg.TextItem)]
+    assert not bars, "a one-value histogram must not draw a plot-filling bar"
+    assert texts, "it should say all values are equal instead"
+
+
+def test_count_bar_with_one_category_sits_in_a_padded_range(qtbot):
+    from pagb_reconstruction.ui.widgets.stat_plots import CountBarPlot, PlotContext
+
+    p = CountBarPlot(
+        key="c", title="Packets", category="Hierarchy", x_label="id", y_label="n",
+        counts=lambda ctx: (np.array([0.0]), np.array([100.0])),
+    )
+    w = p.build(PlotContext())
+    qtbot.addWidget(w)
+    (x_lo, x_hi), _ = w.plot_item.viewRange()
+    assert (x_hi - x_lo) > 1.5, "one bar must sit in a padded x-range, not fill it"

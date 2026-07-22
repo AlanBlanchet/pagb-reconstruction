@@ -114,6 +114,25 @@ def _phase_fractions(ctx: PlotContext) -> tuple[np.ndarray, np.ndarray] | None:
     return np.array(ids, dtype=float), counts
 
 
+def _pad_x_range(host: StyledPlot, x: np.ndarray, width: float) -> None:
+    """Give bars a padded x-range so a single / few bars read as DISCRETE bars,
+    not one block stretched across the whole plot — the degenerate / low-
+    cardinality case (a perfect fit, a sample with no packet hierarchy, a
+    two-phase map). pyqtgraph otherwise auto-ranges tight to the lone bar."""
+    lo, hi = float(np.min(x)), float(np.max(x))
+    span = (hi - lo) or 1.0
+    host.plot_item.setXRange(lo - width - 0.1 * span, hi + width + 0.1 * span, padding=0)
+
+
+def _note(host: StyledPlot, text: str) -> None:
+    """A centered message for a plot whose data has nothing to distribute."""
+    label = pg.TextItem(text, color=active_theme().text_muted, anchor=(0.5, 0.5))
+    host.plot_item.addItem(label)
+    host.plot_item.setXRange(0, 1, padding=0)
+    host.plot_item.setYRange(0, 1, padding=0)
+    label.setPos(0.5, 0.5)
+
+
 # ── plot kinds: generic, config-driven ──
 
 
@@ -138,12 +157,19 @@ class HistogramPlot:
         host = StyledPlot(self.title, x_label=self.x_label, y_label=self.y_label)
         v = self.values(ctx)
         if v is not None and len(v):
-            n_bins = min(self.bins, max(1, len(np.unique(v))))
-            hist, edges = np.histogram(v, bins=n_bins)
-            x = (edges[:-1] + edges[1:]) / 2
-            width = (edges[1] - edges[0]) * 0.9 if len(edges) > 1 else 0.8
-            host.plot_bars(x, hist.astype(float), width=width,
-                           color=getattr(active_theme(), self.color))
+            uniq = np.unique(v)
+            if len(uniq) <= 1:
+                # A histogram of one value is meaningless — say so, don't stretch
+                # a lone bar across the whole plot.
+                _note(host, f"all {len(v)} values ≈ {float(uniq[0]):.3g}")
+            else:
+                n_bins = min(self.bins, len(uniq))
+                hist, edges = np.histogram(v, bins=n_bins)
+                x = (edges[:-1] + edges[1:]) / 2
+                width = (edges[1] - edges[0]) * 0.9
+                host.plot_bars(x, hist.astype(float), width=width,
+                               color=getattr(active_theme(), self.color))
+                _pad_x_range(host, x, width)
         return host
 
 
@@ -169,6 +195,7 @@ class CountBarPlot:
             x, heights = data
             host.plot_bars(x, heights, width=0.8,
                            color=getattr(active_theme(), self.color))
+            _pad_x_range(host, x, 0.8)
         return host
 
 

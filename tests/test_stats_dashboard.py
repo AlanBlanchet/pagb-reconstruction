@@ -56,6 +56,17 @@ def test_selecting_a_plot_focuses_it_lazily(
     assert "pole_figure" in d._built, "selected plot is built + cached lazily"
 
 
+def test_focused_plot_has_a_usable_min_height(qtbot):
+    """visual-critic 2026-07-22: the browser STRUCTURE was right, but at the
+    cold-default dock height the focused plot collapsed to ~90px (the "squishy"
+    complaint, relocated). The plot host must floor at a legible height."""
+    from pagb_reconstruction.ui.widgets.stats_dashboard import StatsDashboard
+
+    d = StatsDashboard()
+    qtbot.addWidget(d)
+    assert d._host.minimumHeight() >= 280, "the focused plot must stay legibly large"
+
+
 def test_summary_dock_exists(qtbot):
     from pagb_reconstruction.ui.main_window import MainWindow
 

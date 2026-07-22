@@ -224,37 +224,7 @@ class ReconstructionPanel(QWidget):
             )
             self._step_label.setText("Done")
             self._step_counter.setText(f"{len(_STEP_NAMES)}/{len(_STEP_NAMES)}")
-
-            n_parents = len(
-                np.unique(result.parent_grain_ids[result.parent_grain_ids >= 0])
-            )
-            fit_valid = result.fit_angles[~np.isnan(result.fit_angles)]
-            mean_fit = float(np.mean(fit_valid)) if len(fit_valid) > 0 else 0
-            max_fit = float(np.max(fit_valid)) if len(fit_valid) > 0 else 0
-            tol = self._config.revert_threshold_deg
-            n_poor = int(np.sum(fit_valid > tol)) if len(fit_valid) > 0 else 0
-            pct = (
-                np.sum(result.parent_grain_ids >= 0)
-                / len(result.parent_grain_ids)
-                * 100
-            )
-            ok = mean_fit <= tol
-            _p = active_theme()
-            verdict_color = _p.success if ok else _p.warning
-            verdict = "good fit" if ok else "high fit \u2014 check OR"
-
-            self._results_label.setText(
-                f"Parent grains: {n_parents}\n"
-                f"Mean fit: {mean_fit:.2f}\u00b0  (max {max_fit:.1f}\u00b0, "
-                f"{n_poor} px > {tol:.1f}\u00b0 tol)\n"
-                f"Reconstructed: {pct:.1f}%\n"
-                f"Total time: {total_time:.1f}s"
-            )
-            self._results_group.setTitle(f"Results Summary \u2014 {verdict}")
-            self._results_group.setStyleSheet(
-                f"QGroupBox::title {{ color: {verdict_color}; }}"
-            )
-            self._results_group.setVisible(True)
+            self._show_results_summary(result, total_time, self._config)
         else:
             self._progress_bar.setValue(0)
             self._step_label.setText("Failed")
@@ -262,6 +232,32 @@ class ReconstructionPanel(QWidget):
 
         self.reconstruction_finished.emit(result)
         self._worker = None
+
+    def _show_results_summary(self, result, total_time, config):
+        """Populate the Results Summary card \u2014 shared by a manual Run and by
+        Auto-optimize (whose card previously never repopulated)."""
+        n_parents = len(np.unique(result.parent_grain_ids[result.parent_grain_ids >= 0]))
+        fit_valid = result.fit_angles[~np.isnan(result.fit_angles)]
+        mean_fit = float(np.mean(fit_valid)) if len(fit_valid) > 0 else 0
+        max_fit = float(np.max(fit_valid)) if len(fit_valid) > 0 else 0
+        tol = config.revert_threshold_deg
+        n_poor = int(np.sum(fit_valid > tol)) if len(fit_valid) > 0 else 0
+        pct = np.sum(result.parent_grain_ids >= 0) / len(result.parent_grain_ids) * 100
+        ok = mean_fit <= tol
+        _p = active_theme()
+        verdict_color = _p.success if ok else _p.warning
+        verdict = "good fit" if ok else "high fit \u2014 check OR"
+
+        self._results_label.setText(
+            f"Parent grains: {n_parents}\n"
+            f"Mean fit: {mean_fit:.2f}\u00b0  (max {max_fit:.1f}\u00b0, "
+            f"{n_poor} px > {tol:.1f}\u00b0 tol)\n"
+            f"Reconstructed: {pct:.1f}%\n"
+            f"Total time: {total_time:.1f}s"
+        )
+        self._results_group.setTitle(f"Results Summary \u2014 {verdict}")
+        self._results_group.setStyleSheet(f"QGroupBox::title {{ color: {verdict_color}; }}")
+        self._results_group.setVisible(True)
 
     def start_auto_optimize(self, ebsd_map: EBSDMap, base_config: ReconstructionConfig):
         if self._opt_worker is not None and self._opt_worker.isRunning():
@@ -290,6 +286,10 @@ class ReconstructionPanel(QWidget):
             best = dataclasses.replace(best, name="auto-optimized")
             self._progress_bar.setValue(100)
             self._step_label.setText("Auto-optimize done")
+            # Populate the Results Summary card too — not just the status bar.
+            self._show_results_summary(
+                best.result, time.monotonic() - self._start_time, best.config
+            )
         else:
             self._progress_bar.setValue(0)
             self._step_label.setText("Auto-optimize failed")

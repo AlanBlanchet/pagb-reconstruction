@@ -79,6 +79,12 @@ class StatsDashboard(QWidget):
         outer.addWidget(self._selector)
 
         self._host = QStackedWidget()
+        # Floor the focused plot so it stays genuinely LARGE at the default dock
+        # height: the browser structure was right but a plot collapsed to ~90px
+        # there — "squishy and tight" relocated, not fixed (visual-critic). 300
+        # gives a ~240px plot / ~230px pole-figure circle even when the map-aspect
+        # logic squeezes the bottom strip below the Analyze profile's height.
+        self._host.setMinimumHeight(300)
         self._placeholder = QLabel("Run a reconstruction to see statistics.")
         self._placeholder.setObjectName("plotPlaceholder")
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)

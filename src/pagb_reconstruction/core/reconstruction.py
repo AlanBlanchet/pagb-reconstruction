@@ -48,6 +48,8 @@ class ReconstructionConfig(Displayable):
     )
     inflation_power: float = Field(
         default=1.6,
+        ge=1.0,
+        le=3.0,
         description="MCL inflation exponent controlling cluster granularity (higher = more clusters)",
     )
     fill_nonindexed: bool = Field(
@@ -63,6 +65,8 @@ class ReconstructionConfig(Displayable):
     )
     min_grain_size: int = Field(
         default=5,
+        ge=1,
+        le=5000,
         title="Min. child grain (px)",
         description="Minimum child (martensite/bainite) grain size in pixels during "
         "grain detection; smaller regions are discarded as noise before clustering",
@@ -77,6 +81,8 @@ class ReconstructionConfig(Displayable):
     )
     merge_inclusions_max_size: int = Field(
         default=50,
+        ge=0,
+        le=2000,
         title="Merge islands ≤ (px)",
         description="Parent clusters smaller than this (total pixels) are merged into neighbors",
     )

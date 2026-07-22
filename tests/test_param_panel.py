@@ -16,6 +16,26 @@ def test_min_parent_size_control_is_exposed(qtbot):
     assert "min_parent_size_um" in panel._field_widgets, "control must render"
 
 
+def test_mtex_min_grain_size_survives_the_panel_without_clamping(qtbot):
+    """visual-critic 2026-07-22: min_grain_size had no le, so the panel slider
+    capped it at 200 — MTEX's documented min_grain_size=400 was silently clamped
+    to 200 the moment get_config() re-read the widget, on every run."""
+    from pagb_reconstruction.ui.widgets.param_panel import ParamPanel, _PRESETS
+
+    panel = ParamPanel()
+    qtbot.addWidget(panel)
+    panel.set_config(_PRESETS["MTEX"])
+    got = panel.get_config()
+    assert got.min_grain_size == 400, (
+        f"MTEX min_grain_size clamped to {got.min_grain_size}, corrupting the preset"
+    )
+    # the auto-optimize sweep pushes merge_inclusions to 400 too — must survive
+    from pagb_reconstruction.core.reconstruction import ReconstructionConfig
+
+    panel.set_config(ReconstructionConfig(merge_inclusions_max_size=400))
+    assert panel.get_config().merge_inclusions_max_size == 400
+
+
 def test_fill_nonindexed_toggle_is_exposed(qtbot):
     from pagb_reconstruction.ui.widgets.param_panel import (
         ParamPanel,
