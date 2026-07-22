@@ -48,3 +48,32 @@ def test_spinboxes_ignore_wheel_until_focused(qtbot):
     )
     QApplication.sendEvent(box, focused)
     assert box.value() == 51, "a focused spinbox must still respond to the wheel"
+
+
+def test_guard_removes_wheel_focus_policy(qtbot):
+    """A guarded control must not take focus FROM the wheel itself.
+
+    Qt's default WheelFocus makes the widget focused by the very scroll event
+    being guarded, so a hasFocus() check passes and the value changes anyway —
+    measured live as spinboxes silently going 50->45 and 1000->0 under a scroll
+    the user aimed at the panel. StrongFocus keeps click/tab focus and drops
+    wheel focus.
+    """
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QAbstractSpinBox, QComboBox
+
+    from pagb_reconstruction.ui.widgets.summary_panel import SummaryPanel
+
+    p = SummaryPanel()
+    qtbot.addWidget(p)
+
+    controls = p.findChildren(QAbstractSpinBox) + p.findChildren(QComboBox)
+    assert controls, "expected guarded controls in the summary panel"
+    for c in controls:
+        assert not (c.focusPolicy() & Qt.FocusPolicy.WheelFocus & ~Qt.FocusPolicy.StrongFocus), (
+            f"{type(c).__name__} still takes focus from the wheel "
+            f"(policy {c.focusPolicy()}), so the guard cannot hold"
+        )
+        assert c.focusPolicy() == Qt.FocusPolicy.StrongFocus, (
+            f"{type(c).__name__} should be StrongFocus, got {c.focusPolicy()}"
+        )

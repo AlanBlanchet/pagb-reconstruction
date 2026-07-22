@@ -46,6 +46,7 @@ _IPF_DIRECTIONS = {
 
 
 class MapViewer(QWidget):
+    line_mode_changed = Signal(bool)
     pixel_hovered = Signal(int, int)
     pixel_clicked = Signal(int, int)
     roi_changed = Signal(int, int, int, int)
@@ -177,6 +178,14 @@ class MapViewer(QWidget):
         self._legend_label.setTextFormat(Qt.TextFormat.RichText)
         self._legend_label.setVisible(False)
         layout.addWidget(self._legend_label)
+
+        # Armed-mode hint: without it, arming line-profile mode is invisible
+        # and the toolbar button reads as dead (audited live).
+        self._hint_label = QLabel("", self._graphics_view)
+        self._hint_label.setObjectName("modeHint")
+        self._hint_label.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._hint_label.setVisible(False)
 
         self._computing_overlay = QLabel("", self._graphics_view)
         self._computing_overlay.setObjectName("computingOverlay")
@@ -333,8 +342,26 @@ class MapViewer(QWidget):
         self._plot.autoRange()
 
     def export_image(self, path: str):
-        exporter = pg.exporters.ImageExporter(self._plot)
-        exporter.export(path)
+        """Raw plot export. Interactive decorations (click crosshair, ROI,
+        grain highlight, measure line) are session state, not data — issue #13:
+        "on a le cadre noir autour et le curseur de sélection quand on
+        enregistre". Hide them for the render, restore after."""
+        decorations = [
+            self._crosshair_h,
+            self._crosshair_v,
+            self._highlight_item,
+            self._roi_item,
+            self._line_item,
+        ]
+        shown = [d for d in decorations if d is not None and d.isVisible()]
+        for d in shown:
+            d.setVisible(False)
+        try:
+            exporter = pg.exporters.ImageExporter(self._plot)
+            exporter.export(path)
+        finally:
+            for d in shown:
+                d.setVisible(True)
 
     def _update_display(self):
         if self._ebsd_map is None:
@@ -751,9 +778,51 @@ class MapViewer(QWidget):
         # Slot for QAction.toggled(bool); the old zero-argument form raised
         # TypeError on every click, leaving the toolbar button silently dead.
         self._line_mode = (not self._line_mode) if enabled is None else bool(enabled)
-        if not self._line_mode:
+        if self._line_mode:
+            # An armed mode must LOOK armed: crosshair + a one-line next step,
+            # or the button reads as doing nothing.
+            self._graphics_view.viewport().setCursor(Qt.CursorShape.CrossCursor)
+            self._show_hint("Line profile: click two points on the map")
+        else:
+            self._disarm_line_mode()
+
+    def _disarm_line_mode(self, keep_line: bool = False) -> None:
+        """Single place that takes the mode out of its armed appearance.
+
+        Re-entrant by construction: telling the toolbar we disarmed unchecks its
+        action, whose toggled(False) calls back into here. Without the guard the
+        second pass ran with keep_line defaulting to False and erased the line
+        the user had just measured — invisible to a MapViewer-only test, since
+        nothing is connected to the signal there.
+        """
+        if getattr(self, "_disarming", False):
+            return
+        self._disarming = True
+        try:
+            self._disarm_line_mode_inner(keep_line)
+        finally:
+            self._disarming = False
+
+    def _disarm_line_mode_inner(self, keep_line: bool) -> None:
+        was_armed = self._line_mode
+        self._line_mode = False
+        self._graphics_view.viewport().unsetCursor()
+        self._hint_label.setVisible(False)
+        if not keep_line:
             self._clear_line()
-            self._line_start = None
+        self._line_start = None
+        if was_armed:
+            # Tell the toolbar, or its button stays visually pressed.
+            self.line_mode_changed.emit(False)
+
+    def _show_hint(self, text: str) -> None:
+        self._hint_label.setText(text)
+        self._hint_label.adjustSize()
+        self._hint_label.move(
+            max(0, (self._graphics_view.width() - self._hint_label.width()) // 2), 8
+        )
+        self._hint_label.setVisible(True)
+        self._hint_label.raise_()
 
     def _clear_line(self):
         if self._line_item is not None:
@@ -773,12 +842,21 @@ class MapViewer(QWidget):
                 symbol="o",
                 symbolSize=6,
             )
+            # Above the map and every overlay (boundary 10, highlight 11). Left
+            # at the default 0 it painted UNDER the image and was invisible,
+            # while the profile dialog still showed correct data — which made it
+            # look like a coordinate bug rather than a paint-order one.
+            self._line_item.setZValue(12)
         else:
             x0, y0 = self._line_start
             self._line_item.setData([x0 + 0.5, x + 0.5], [y0 + 0.5, y + 0.5])
-            self._show_misorientation_profile(x0, y0, x, y)
             self._line_start = None
-            self._line_mode = False
+            # Disarm BEFORE opening the profile dialog. Disarming afterwards left
+            # the crosshair, banner and pressed toolbar button on screen for as
+            # long as the dialog was up, claiming the tool was still armed. Keep
+            # the drawn line: _clear_line() would erase the profile just measured.
+            self._disarm_line_mode(keep_line=True)
+            self._show_misorientation_profile(x0, y0, x, y)
 
     def _show_misorientation_profile(self, x0: int, y0: int, x1: int, y1: int):
         if self._ebsd_map is None:
@@ -920,6 +998,34 @@ class MapViewer(QWidget):
         rgba[mask, 3] = 0.35
         self._highlight_item.setImage(rgba, autoLevels=False, levels=(0, 1))
         self._highlight_item.setVisible(True)
+        self._zoom_to_mask(mask)
+
+    def _zoom_to_mask(self, mask: np.ndarray) -> None:
+        """Move the view to the highlighted region — "locate it", as the panel says.
+
+        A worst-fit parent is usually among the SMALLEST grains (that is why it
+        fits badly), so tinting it in place on a full-map view leaves it
+        invisible. Framed with context around it so the grain is still readable
+        against its neighbours rather than filling the canvas.
+        """
+        rows_idx, cols_idx = np.nonzero(mask)
+        if rows_idx.size == 0:
+            return
+        y0, y1 = int(rows_idx.min()), int(rows_idx.max())
+        x0, x1 = int(cols_idx.min()), int(cols_idx.max())
+
+        # Keep a margin of at least the grain's own size, and never zoom past a
+        # readable floor — a 3px grain filling the canvas is as useless as one
+        # lost in the map.
+        span = max(x1 - x0, y1 - y0, 1)
+        margin = max(span, 25)
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        half = span / 2 + margin
+        self._plot.getViewBox().setRange(
+            xRange=(cx - half, cx + half),
+            yRange=(cy - half, cy + half),
+            padding=0,
+        )
 
     def clear_highlight(self) -> None:
         self._highlight_item.clear()

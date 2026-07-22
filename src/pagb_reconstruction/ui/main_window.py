@@ -67,6 +67,8 @@ class MainWindow(QMainWindow):
         self._result = None
         self._recon_start = datetime.now()
         self._settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
+        # Actions that can only fail with no map loaded; gated below.
+        self._data_actions: list = []
         self.setAcceptDrops(True)
         self._setup_ui()
         self._restore_state()
@@ -138,7 +140,15 @@ class MainWindow(QMainWindow):
         self._log_text = QPlainTextEdit()
         self._log_text.setReadOnly(True)
 
-        right_min = (240, 200)
+        # NOT the binding constraint at max bottom-dock drag, despite two
+        # attempts to tune it: the central row bottoms out at ~233px set by the
+        # MAP viewer's own 159px minimum plus the update bar, and 233 already
+        # exceeds any floor tried here. Raising 120 -> 160 changed max dock reach
+        # by 3-5px and did nothing for the Params panel it was meant to help.
+        # Kept low so it never becomes the constraint; Params being scrollable
+        # when the user has deliberately maximised the bottom dock is inherent,
+        # not a bug to tune away.
+        right_min = (240, 120)
         bottom_min = (400, 80)
 
         # Right dock follows the analysis workflow, data first:
@@ -262,6 +272,8 @@ class MainWindow(QMainWindow):
         self._setup_menu()
         self._setup_toolbar()
         self._setup_statusbar()
+        # Nothing is loaded yet, so anything needing data can only fail.
+        self._set_data_actions_enabled(False)
         self._connect_signals()
 
     def _add_dock(
@@ -308,8 +320,15 @@ class MainWindow(QMainWindow):
         for dock in self._docks.values():
             dock.setVisible(True)
             dock.setFloating(False)
-        right = ["Phases", "OR", "Params", "Info"]
-        bottom = ["Reconstruction", "Statistics", "Poles", "Parents", "Log"]
+        # Derived from where the docks actually live, never a hand-written list:
+        # the previous literal omitted Summary and Misorientation, so any dock
+        # added later would be reset into its own stray tab strip. Same
+        # hard-coded-name-list bug that made the Analyze profile hide those exact
+        # docks.
+        right = [n for n, d in self._docks.items()
+                 if self.dockWidgetArea(d) == Qt.DockWidgetArea.RightDockWidgetArea]
+        bottom = [n for n, d in self._docks.items()
+                  if self.dockWidgetArea(d) == Qt.DockWidgetArea.BottomDockWidgetArea]
         for group in (right, bottom):
             names = [n for n in group if n in self._docks]
             for first, second in zip(names, names[1:]):
@@ -322,6 +341,8 @@ class MainWindow(QMainWindow):
             self.resizeDocks(
                 [self._docks["Reconstruction"]], [230], Qt.Orientation.Vertical
             )
+        # The user asked for defaults back, so let map loads reshape again.
+        self._layout_restored = False
         self._make_dock_tabs_scrollable()
         self._log("Layout reset")
 
@@ -333,10 +354,68 @@ class MainWindow(QMainWindow):
         if rows:
             self._fit_layout_to_map_aspect(cols / rows)
 
+    # Split presets (Map / Balanced / Panel) were built here and REMOVED after
+    # live verification. They worked headless and in the test suite, but on the
+    # real app only the GROW direction took effect: these docks are tabified, so
+    # the group cannot shrink past the tallest tab's sizeHint (~383px, driven by
+    # Poles ~555 and Statistics ~523), and pinning min/max around the resize did
+    # not defeat that live even though it did offscreen — the third recurrence of
+    # this headless/live divergence in this widget.
+    #
+    # A "Map" button that silently does nothing is the same defect class as the
+    # dead controls this app was just cleaned of, and worse than no button: cold
+    # launch already sits at the clamp, so the no-op is invisible. Re-attempting
+    # this means first lowering the tallest tab's sizeHint, and verifying LIVE —
+    # the offscreen suite cannot see this failure.
+
+    def _set_data_actions_enabled(self, enabled: bool) -> None:
+        """Gate the actions that need a loaded map.
+
+        An enabled control that can only produce an error or an empty file is
+        the same false affordance as a button that does nothing.
+        """
+        for action in self._data_actions:
+            action.setEnabled(enabled)
+
+    def _show_parent_info(self, parent_id: int) -> None:
+        """Fill the Info panel from a Parents-table selection."""
+        if self._result is None or parent_id < 0:
+            return
+        ids = np.asarray(self._result.parent_grain_ids)
+        member = np.nonzero(ids == parent_id)[0]
+        if member.size == 0:
+            return
+        idx = int(member[0])
+        # Blank the fields that describe the last CHILD grain clicked on the map.
+        # Left in place they sit beside the parent's numbers and read as though
+        # they belong to it — a trust bug for anyone cross-referencing IDs.
+        for field in ("Grain ID", "Phase", "Eq. Diameter", "Aspect Ratio",
+                      "Neighbors", "Mean Orientation"):
+            self._grain_labels[field].setText("-")
+        self._grain_labels["Parent Grain ID"].setText(str(parent_id))
+        variant = int(np.asarray(self._result.variant_ids)[idx])
+        self._grain_labels["Variant ID"].setText(f"V{variant}" if variant >= 0 else "-")
+        fits = np.asarray(self._result.fit_angles, dtype=float)[member]
+        valid = fits[~np.isnan(fits)]
+        self._grain_labels["Fit Angle"].setText(
+            f"{float(np.mean(valid)):.2f}\u00b0" if valid.size else "-"
+        )
+        self._grain_labels["Area (px)"].setText(str(int(member.size)))
+
     def _bottom_dock_height(self) -> int:
         return self._docks["Reconstruction"].height()
 
     def _fit_layout_to_map_aspect(self, map_aspect: float):
+        """Shape the layout for a newly loaded map — unless the user has a saved
+        one. Restoring a layout and then resizing the docks on the next map load
+        threw the restore away, which is why dock sizes looked like they never
+        persisted; Qt was restoring them correctly and this method overwrote it.
+        """
+        if getattr(self, "_layout_restored", False):
+            return
+        self._fit_layout_to_map_aspect_inner(map_aspect)
+
+    def _fit_layout_to_map_aspect_inner(self, map_aspect: float):
         """Shape the central area toward the loaded map's aspect ratio.
 
         A tall map inside a wide, short viewport wastes most of the canvas on
@@ -369,11 +448,55 @@ class MainWindow(QMainWindow):
         outvoted by a later sizeHint, so the canvas can never be squeezed below
         its share — while leaving the user free to resize within that range.
         """
-        ceiling = max(200, int(self.height() * 0.42))
-        for name in ("Reconstruction", "Statistics", "Poles", "Parents", "Log"):
-            dock = self._docks.get(name)
-            if dock is not None:
-                dock.setMaximumHeight(ceiling)
+        # Bound by what the MAP needs, not by an arbitrary fraction. The central
+        # widget's own minimum is ~159px, so the previous 0.42-of-window cap was
+        # never protecting the map — it only forbade the user from growing a
+        # data-dense tab (Summary's results line clipped at maximum drag while
+        # the map sat at 637px). Reserve a genuinely readable map instead and let
+        # the user have the rest; the DEFAULT height stays map-dominant.
+        # This is a SAFETY cap, not the operative limit. Qt's own layout binds
+        # first: the bottom docks span the full width (both bottom corners are
+        # assigned to them), so the central row's floor is the RIGHT dock's
+        # minimum height, not the map's — measured, asking for 900px of dock
+        # yields 645. The cap exists only to stop a later sizeHint from letting
+        # the docks swallow the canvas; the previous 0.42-of-window value was
+        # tighter than Qt's limit and so became the thing blocking the user.
+        _MAP_FLOOR = 220
+        ceiling = max(200, self.height() - _MAP_FLOOR)
+        # Derived from the dock list, never a hand-written name set: a new bottom
+        # dock would otherwise be left uncapped and the group sizes to it.
+        for dock in self._bottom_docks:
+            dock.setMaximumHeight(ceiling)
+
+    def _reveal_docks_added_since(self, known_names) -> None:
+        """Show docks that did not exist when this layout was saved.
+
+        restoreState() only positions docks its blob knows about, so a dock
+        shipped in a later release stays hidden forever and the View menu is the
+        only way back \u2014 which no first-time-after-upgrade user finds.
+        """
+        if not known_names:
+            return
+        known = set(known_names)
+        added = [
+            dock for name, dock in self._docks.items()
+            if name not in known and dock.isHidden()
+        ]
+        for dock in added:
+            area = self.dockWidgetArea(dock)
+            sibling = next(
+                (
+                    d for nm, d in self._docks.items()
+                    if nm in known and not d.isHidden()
+                    and self.dockWidgetArea(d) == area
+                ),
+                None,
+            )
+            if sibling is not None:
+                self.tabifyDockWidget(sibling, dock)
+            dock.show()
+        if added:
+            self._make_dock_tabs_scrollable()
 
     def _setup_menu(self):
         menu_bar = self.menuBar()
@@ -390,6 +513,7 @@ class MainWindow(QMainWindow):
         save_action.setIcon(icon("save"))
         save_action.triggered.connect(self._save_file)
         file_menu.addAction(save_action)
+        self._data_actions.append(save_action)
 
         file_menu.addSeparator()
         self._recent_menu = file_menu.addMenu("Open &Recent")
@@ -407,6 +531,7 @@ class MainWindow(QMainWindow):
             action.setText(name)
             view_menu.addAction(action)
 
+        view_menu.addSeparator()
         view_menu.addSeparator()
         _reset_layout_menu = QAction("Reset &Layout", self)
         _reset_layout_menu.setToolTip("Restore all panels and the default arrangement")
@@ -436,6 +561,7 @@ class MainWindow(QMainWindow):
         export_img.setIcon(icon("export_image"))
         export_img.triggered.connect(self._export_image)
         tools_menu.addAction(export_img)
+        self._data_actions.append(export_img)
 
         export_stats = QAction("Export Stats (CSV)...", self)
         export_stats.setIcon(icon("export_data"))
@@ -443,6 +569,7 @@ class MainWindow(QMainWindow):
         tools_menu.addAction(export_stats)
 
         export_data = QAction("Export Map Data...", self)
+        self._data_actions.append(export_data)
         export_data.setIcon(icon("export_data"))
         export_data.triggered.connect(self._export_map_data)
         tools_menu.addAction(export_data)
@@ -492,6 +619,10 @@ class MainWindow(QMainWindow):
         self._stop_action.setToolTip("Stop reconstruction (Esc)")
         self._stop_action.setShortcut(QKeySequence("Escape"))
         self._stop_action.triggered.connect(self._reconstruction_panel._cancel)
+        # Escape is an app-wide shortcut and a reflex key; keep it inert unless
+        # a run is in flight, or a stray press fires Stop against whatever the
+        # app is doing (observed live as a silent result reset).
+        self._stop_action.setEnabled(False)
         toolbar.addAction(self._stop_action)
 
         toolbar.addSeparator()
@@ -568,6 +699,9 @@ class MainWindow(QMainWindow):
         line_action.setCheckable(True)
         line_action.setShortcut(QKeySequence("L"))
         line_action.toggled.connect(self._map_viewer.toggle_line_mode)
+        # The viewer disarms itself once a profile completes; keep the button
+        # in step so it never shows pressed for a mode that has ended.
+        self._map_viewer.line_mode_changed.connect(line_action.setChecked)
         toolbar.addAction(line_action)
 
         roi_action = QAction(icon("roi"), "ROI", self)
@@ -628,6 +762,10 @@ class MainWindow(QMainWindow):
         self._map_viewer.roi_changed.connect(self._on_roi_changed)
 
         self._parent_review.parent_selected.connect(self._map_viewer.highlight_parent)
+        # Locating the grain without its numbers is two actions for one intent
+        # \u2014 and the second asks the user to click a grain just described
+        # as hard to see.
+        self._parent_review.parent_selected.connect(self._show_parent_info)
         self._parent_review.reassign_requested.connect(self._on_reassign_parent)
 
         QTimer.singleShot(3000, self._check_updates)
@@ -792,6 +930,7 @@ class MainWindow(QMainWindow):
             self._ebsd_map = load_ebsd(path)
             self._add_recent(path)
             self._map_viewer.set_ebsd_map(self._ebsd_map)
+            self._set_data_actions_enabled(True)
             # Shape the canvas toward this map's aspect (issue #11).
             rows, cols = self._ebsd_map.shape
             if rows:
@@ -827,6 +966,7 @@ class MainWindow(QMainWindow):
         config_dict["or_type"] = or_config
         full_config = ReconstructionConfig(**config_dict)
         self._reconstruction_panel.start_reconstruction(self._ebsd_map, full_config)
+        self._stop_action.setEnabled(True)
         self._progress_bar.setVisible(True)
         self._progress_bar.setRange(0, 0)
         self._task_manager.submit("reconstruction", "Reconstruction")
@@ -874,12 +1014,16 @@ class MainWindow(QMainWindow):
                 if rows:
                     self._fit_layout_to_map_aspect(cols / rows)
         self._progress_bar.setVisible(False)
-        self._result = result
+        self._stop_action.setEnabled(False)
         if result is None:
-            self._status_bar.showMessage("Reconstruction failed")
+            # Keep the previous result: it feeds Poles, Parents and export, and
+            # overwriting it with None wipes them all with no undo.
+            kept = " \u2014 previous result kept" if self._result is not None else ""
+            self._status_bar.showMessage(f"Reconstruction failed{kept}")
             self._task_manager.complete("reconstruction", "error")
-            self._log("Reconstruction FAILED")
+            self._log(f"Reconstruction FAILED{kept}")
             return
+        self._result = result
         elapsed = (datetime.now() - self._recon_start).total_seconds()
         self._task_manager.complete("reconstruction", "done")
         self._map_viewer.set_reconstruction_result(result)
@@ -1075,9 +1219,12 @@ class MainWindow(QMainWindow):
         state = self._settings.value("window_state")
         if state:
             self.restoreState(state)
+            self._reveal_docks_added_since(self._settings.value("dock_names"))
             # A pre-two-row saved state re-docks both toolbars onto one
             # row; re-assert the break so the view toolbar keeps its row.
             self.insertToolBarBreak(self._view_toolbar)
+            # The user has a layout of their own; do not reshape it on map load.
+            self._layout_restored = True
         else:
             self._should_hide_bottom = True
 
@@ -1166,8 +1313,19 @@ class MainWindow(QMainWindow):
         central = self.centralWidget()
         if central and hasattr(self, "_task_manager"):
             self._task_manager.reposition(central.width(), central.height())
+        # The ceiling is a fraction of window height, so it is stale the moment
+        # the window changes size. Recomputing it only on map load froze the dock
+        # at its load-time height. The dock deliberately does NOT auto-grow: every
+        # scheme that made it do so destroyed a manual splitter drag, which is
+        # worse than not growing.
+        if hasattr(self, "_bottom_docks"):
+            self._cap_bottom_docks()
+
 
     def closeEvent(self, event):
         self._settings.setValue("window_geometry", self.saveGeometry())
         self._settings.setValue("window_state", self.saveState())
+        # Record which docks this layout knows about, so a later release can
+        # tell its new docks apart from ones the user deliberately closed.
+        self._settings.setValue("dock_names", sorted(self._docks))
         super().closeEvent(event)

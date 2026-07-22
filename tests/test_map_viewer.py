@@ -265,3 +265,212 @@ def test_overlay_opacity_does_not_dilute_its_scrim(qtbot):
     assert w._overlay_anim.loopCount() == 1, "overlay must not pulse forever"
     assert w._overlay_anim.endValue() == 1.0
     assert w._overlay_opacity.opacity() == 1.0
+
+
+def test_line_mode_announces_itself(qtbot):
+    """Arming line-profile mode must be visible: a crosshair cursor over the
+    map and a hint of what to do next. Without either, the armed mode is
+    indistinguishable from a dead button — audited live as 'engages with no
+    visible effect anywhere on screen'.
+    """
+    from PySide6.QtCore import Qt
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+
+    w.toggle_line_mode(True)
+    assert (
+        w._graphics_view.viewport().cursor().shape() == Qt.CursorShape.CrossCursor
+    ), "armed line mode must show a crosshair over the map"
+    # isHidden(), not isVisible(): offscreen the ancestor view is never marked
+    # visible, so isVisible() is false for every child regardless of state.
+    assert not w._hint_label.isHidden(), "armed line mode must show its hint"
+    assert "profile" in w._hint_label.text().lower(), (
+        "the hint must say what to do next"
+    )
+
+    w.toggle_line_mode(False)
+    assert (
+        w._graphics_view.viewport().cursor().shape() != Qt.CursorShape.CrossCursor
+    ), "disarming must restore the normal cursor"
+    assert w._hint_label.isHidden()
+
+
+def test_completing_a_line_profile_clears_its_armed_state(qtbot):
+    """Finishing the two-click profile must disarm the mode VISIBLY.
+
+    The handler sets _line_mode = False directly, bypassing toggle_line_mode, so
+    the crosshair cursor and the "click two points" banner survived a completed
+    profile and told the user the tool was still armed when it was not.
+    """
+    import numpy as np
+    from PySide6.QtCore import Qt
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    class _FakeMap:
+        shape = (8, 8)
+        step_size = (1.0, 1.0)
+        quaternions = np.tile(np.array([1.0, 0.0, 0.0, 0.0]), (64, 1))
+
+        def _primary_symmetry_quats(self):
+            return np.array([[1.0, 0.0, 0.0, 0.0]])
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    w._ebsd_map = _FakeMap()
+
+    w.toggle_line_mode(True)
+    assert not w._hint_label.isHidden()
+
+    w._handle_line_click(1, 1)   # first point
+
+    # The profile opens a dialog; disarming must happen BEFORE that, or a modal
+    # or slow dialog leaves the map looking armed while it is up.
+    order = []
+    real_profile = w._show_misorientation_profile
+    real_disarm = w._disarm_line_mode
+
+    def _profile(*a, **k):
+        order.append("profile")
+        return real_profile(*a, **k)
+
+    def _disarm(*a, **k):
+        order.append("disarm")
+        return real_disarm(*a, **k)
+
+    w._show_misorientation_profile = _profile
+    w._disarm_line_mode = _disarm
+    w._handle_line_click(5, 5)   # second point completes the profile
+    assert order and order[0] == "disarm", (
+        f"disarm must precede the profile dialog, got {order}"
+    )
+
+    assert w._line_mode is False
+    assert w._hint_label.isHidden(), "hint banner survived a completed profile"
+    assert (
+        w._graphics_view.viewport().cursor().shape() != Qt.CursorShape.CrossCursor
+    ), "crosshair survived a completed profile — the tool looks still armed"
+
+
+def test_line_profile_draws_above_the_map(qtbot):
+    """The measured line must be painted ABOVE the map and its overlays.
+
+    Every other overlay sets an explicit z (boundary 10, highlight 11) but the
+    line item was left at the default 0, so it rendered underneath the image —
+    measured live as 0/250 pixel samples matching the line colour along the exact
+    computed path, in every theme. The profile dialog still opened with correct
+    data, which is why this looked like a coordinate bug and was not.
+    """
+    import numpy as np
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    class _FakeMap:
+        shape = (8, 8)
+        step_size = (1.0, 1.0)
+        quaternions = np.tile(np.array([1.0, 0.0, 0.0, 0.0]), (64, 1))
+
+        def _primary_symmetry_quats(self):
+            return np.array([[1.0, 0.0, 0.0, 0.0]])
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    w._ebsd_map = _FakeMap()
+
+    w.toggle_line_mode(True)
+    w._handle_line_click(1, 1)
+    assert w._line_item is not None
+
+    overlays = max(
+        w._image_item.zValue(), w._boundary_item.zValue(), w._highlight_item.zValue()
+    )
+    assert w._line_item.zValue() > overlays, (
+        f"line z={w._line_item.zValue()} is not above the map overlays "
+        f"(max z={overlays}) — it paints underneath and is invisible"
+    )
+
+
+def test_highlighting_a_parent_actually_locates_it(qtbot):
+    """The Parents panel says "select one to locate it", so selecting must move
+    the view to it — not merely tint it in place.
+
+    A worst-fit parent is typically the SMALLEST grain on the map (that is why
+    it fits badly), so a tint under ~100px is invisible on a full-map view and
+    the copy is a broken promise.
+    """
+    import numpy as np
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    rows, cols = 200, 200
+    ids = np.full(rows * cols, -1, dtype=int)
+    grid = ids.reshape(rows, cols)
+    grid[150:158, 20:28] = 7          # a small grain, far from centre
+
+    class _FakeMap:
+        shape = (rows, cols)
+
+        def _to_grid(self, flat, fill=-1):
+            return np.asarray(flat).reshape(self.shape)
+
+    class _FakeResult:
+        parent_grain_ids = ids
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    w._ebsd_map = _FakeMap()
+    w._result = _FakeResult()
+    w._image_item.setImage(np.zeros((rows, cols), dtype=np.float32))
+    w._plot.getViewBox().autoRange(padding=0)
+    before = w._plot.getViewBox().viewRange()
+
+    w.highlight_parent(7)
+
+    after = w._plot.getViewBox().viewRange()
+    assert after != before, "selecting a parent did not move the view to it"
+
+    (x0, x1), (y0, y1) = after
+    assert x0 <= 24 <= x1 and y0 <= 154 <= y1, (
+        f"grain centre (24,154) not inside the new view {after}"
+    )
+    assert (x1 - x0) < cols, "view did not zoom in at all — grain stays tiny"
+
+
+def test_export_hides_interactive_decorations(qtbot, tmp_path):
+    """Issue #13: the saved image carried the selection crosshair. Decorations
+    are session state, not data — they must not appear in an export, and must
+    come back afterwards."""
+    import numpy as np
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    w = MapViewer()
+    qtbot.addWidget(w)
+    w._image_item.setImage(np.random.default_rng(0).random((40, 60, 3)))
+    w._crosshair_h.setVisible(True)
+    w._crosshair_v.setVisible(True)
+
+    seen = {}
+    real_export = w.export_image
+
+    import pyqtgraph as pg
+
+    class SpyExporter:
+        def __init__(self, plot):
+            seen["crosshair_during"] = w._crosshair_h.isVisible()
+
+        def export(self, path):
+            pass
+
+    orig = pg.exporters.ImageExporter
+    pg.exporters.ImageExporter = SpyExporter
+    try:
+        real_export(str(tmp_path / "out.png"))
+    finally:
+        pg.exporters.ImageExporter = orig
+
+    assert seen["crosshair_during"] is False, "crosshair rendered into the export"
+    assert w._crosshair_h.isVisible(), "crosshair not restored after export"

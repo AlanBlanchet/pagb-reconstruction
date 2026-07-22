@@ -117,8 +117,22 @@ QToolButton {
   color: $fg;
 }
 QToolButton:hover { background: $elevated; }
-QToolButton:pressed, QToolButton:checked { background: mix($accent, $surface, 24%); }
-QToolButton:checked { border-color: mix($accent, $border, 50%); }
+QToolButton:pressed { background: mix($accent, $surface, 24%); }
+// A checked tool is ARMED and must read that way at a glance: the previous 24%
+// accent wash read as hover, and a tester watching for it still mis-toggled it
+// twice. The cue is a full-strength accent BORDER, not an accent fill. Two
+// reasons, both measured: qdarktheme's additional_qss wins the background
+// cascade for QToolButton:checked, so our value never reaches the pixels; and a
+// white glyph on a solid accent fill measures 3.22:1, below the 4.5:1 AA floor.
+// The border + elevated fill that actually renders measures 8.06:1.
+// (Block /* */ comments survive into the compiled QSS -- keep these as //.)
+QToolButton:checked {
+  background: $elevated;
+  color: $fg;
+  border: 1px solid $accent;
+  font-weight: 600;
+}
+QToolButton:checked:hover { border-color: $accent_hover; }
 QToolButton::menu-indicator { image: none; }
 
 // ── Inputs: recessed wells, accent focus ring ───────────────────
@@ -328,6 +342,16 @@ QLabel#mapPlaceholder {
   border-radius: 12px;
   margin: 40px;
 }
+QLabel#modeHint {
+  // Armed-mode banner (line profile etc.): readable over any map colour,
+  // quieter than the computing scrim since the app stays interactive.
+  background: rgba(0, 0, 0, 0.85);
+  color: $fg;
+  font-size: 12px;
+  padding: 5px 14px;
+  border-radius: 6px;
+}
+
 QLabel#computingOverlay {
   /* Near-opaque: at 0.66 the multicolour map bled through and measured
      1-2:1 contrast against the text, far under the 4.5:1 readable floor. */

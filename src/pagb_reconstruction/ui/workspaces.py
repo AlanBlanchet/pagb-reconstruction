@@ -37,8 +37,12 @@ PROFILES: dict[str, WorkspaceProfile] = {
     "Analyze": WorkspaceProfile(
         name="Analyze",
         icon="stats",
+        # Every result panel a finished reconstruction produces. A dock left out
+        # here is HIDDEN the moment this profile auto-applies, which is how
+        # Summary / Misorientation / Parents vanished on completing a run.
         visible=("Phases", "OR", "Params", "Info",
-                 "Statistics", "Poles", "Reconstruction", "Log"),
+                 "Statistics", "Summary", "Misorientation", "Parents",
+                 "Poles", "Reconstruction", "Log"),
         raised_right="Info",
         raised_bottom="Statistics",
         bottom_height=480,
@@ -61,11 +65,22 @@ def apply_profile(window, profile: WorkspaceProfile) -> None:
         dock.setVisible(name in profile.visible)
     if profile.raised_right:
         window._docks[profile.raised_right].raise_()
+    # A profile owns WHICH docks are visible and which is raised. It owns their
+    # SIZE only as a fallback: when the user has a restored layout, overriding it
+    # here silently discarded their saved geometry the instant a reconstruction
+    # finished (Analyze's bottom_height stomping a 763px dock back to 493px).
+    # Dock geometry has several independent resizeDocks callers; each one must
+    # defer to a restored layout or the next one resurfaces this same bug.
+    keep_user_geometry = getattr(window, "_layout_restored", False)
+
     if profile.raised_bottom:
         dock = window._docks[profile.raised_bottom]
         dock.raise_()
-        window.resizeDocks([dock], [profile.bottom_height], Qt.Orientation.Vertical)
-    if profile.visible:
+        if not keep_user_geometry:
+            window.resizeDocks(
+                [dock], [profile.bottom_height], Qt.Orientation.Vertical
+            )
+    if profile.visible and not keep_user_geometry:
         first_right = next(
             (n for n in ("Phases", "OR", "Params", "Info") if n in profile.visible),
             None,

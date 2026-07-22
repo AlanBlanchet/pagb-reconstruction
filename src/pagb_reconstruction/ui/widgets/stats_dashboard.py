@@ -48,10 +48,12 @@ class ChartWidget(StyledPlot):
 
     def __init__(self, title: str, x_label: str = "", y_label: str = ""):
         super().__init__(title, x_label=x_label, y_label=y_label)
-        # Fits the bottom dock's shape: it is full-window WIDE but short, so a
-        # chart floor above the ~230px default height makes the panel unable to
-        # render its own content without scrolling.
-        self._widget.setMinimumSize(200, 170)
+        # Fits the bottom dock's shape: full-window WIDE but short. Kept at 120
+        # rather than 170 because these docks are TABIFIED — the whole bottom
+        # group's minimum height is the TALLEST tab's, so Statistics' floor was
+        # clamping the "Map" split preset to ~350px even when Log was showing.
+        # A live pass confirmed the charts stay legible down to ~90px plot boxes.
+        self._widget.setMinimumSize(200, 120)
         self._widget.scene().sigMouseClicked.connect(self._on_click)
 
     def plot(self) -> pg.PlotItem:
