@@ -846,7 +846,6 @@ class MainWindow(QMainWindow):
             self._on_reconstruction_done
         )
         self._or_panel.or_changed.connect(self._on_or_changed)
-        self._map_viewer.pixel_hovered.connect(self._on_pixel_hover)
         self._map_viewer.pixel_clicked.connect(self._on_pixel_click)
         self._map_viewer.roi_changed.connect(self._on_roi_changed)
 
@@ -911,25 +910,6 @@ class MainWindow(QMainWindow):
 
     def _on_roi_changed(self, x, y, w, h):
         self._status_bar.showMessage(f"ROI: ({x}, {y}) {w}\u00d7{h} px")
-
-    def _on_pixel_hover(self, x: int, y: int):
-        if self._ebsd_map is None:
-            return
-        rows, cols = self._ebsd_map.shape
-        if not (0 <= y < rows and 0 <= x < cols):
-            return
-        flat = self._ebsd_map.pixel_index_at(y, x)
-        if flat < 0:
-            return
-        phi1, Phi, phi2 = self._ebsd_map.pixel_euler(flat)
-        pid = int(self._ebsd_map.phase_ids[flat])
-        pname = self._ebsd_map.phase_name(pid)
-        iq = self._ebsd_map.band_contrast_map()[y, x]
-        self._status_bar.showMessage(
-            f"x: {x}  y: {y} | Phase: {pname} | "
-            f"\u03c6\u2081={phi1:.1f}\u00b0 \u03a6={Phi:.1f}\u00b0 \u03c6\u2082={phi2:.1f}\u00b0 | "
-            f"IQ: {iq:.0f}"
-        )
 
     def _on_pixel_click(self, x: int, y: int):
         if self._ebsd_map is None:
