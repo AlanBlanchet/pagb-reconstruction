@@ -1,5 +1,22 @@
 # visual-critic memory — pagb-reconstruction
 
+## 2026-07-24 (delta) — reconstruction-panel error-line colour/bg fix: 3/3 PASS
+
+- Confirmed on pixels: log bg = RGB(20,20,20)=#141414 exact (apply_theme(app) now applied in
+  the standalone harness — prior white bg WAS a harness bug, not an app bug). Error-glyph core
+  = RGB(240,97,109)=#f0616d exact match to the .error token. Recomputed WCAG contrast
+  independently = 5.82:1 (matches claim), clears 4.5:1 AA. Ordinary step-line text core
+  ~(227,227,227), contrast 14.09:1. No box clipping (border y89-236, error text y218-227).
+- Harness recipe: env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb GDK_BACKEND=x11 uv run python
+  <scratchpad>/panel_harness.py, cwd=repo, wait=60, target="nested:Recon Panel Harness" —
+  worked first try, no env-var issues despite this being a plain script (not `uv run pagb`).
+- Pixel-sample method for text-on-dark-bg contrast checks: scan the row for the "reddest"
+  (r>g+40 and r>b+40) or "brightest-grey" (|r-g|<6,|g-b|<6,r>150) pixel to find the glyph CORE
+  color (anti-aliased edges blend toward bg and undershoot the true token hex) — do not sample
+  a single arbitrary pixel, it may land on an AA edge and read as a false-low contrast.
+- A standalone widget harness MUST call apply_theme(app) or it renders on Qt's default WHITE,
+  which false-reads a light-theme-only contrast failure for what is actually a dark-bg app.
+
 ## 2026-07-24 — #16 clustering OOM fix (dense→sparse vote matrix): 3/3 PASS
 
 - Cold launch `uv run pagb` (no file arg) + File>Open native GTK dialog: select
