@@ -21,22 +21,6 @@ from pagb_reconstruction.core.reconstruction import (
 )
 from pagb_reconstruction.ui.theme import active_theme
 
-_STEP_NAMES = [
-    "Detecting grains",
-    "Setting up OR",
-    "Refining OR",
-    "Building variant graph",
-    "Building graph",
-    "Clustering variants",
-    "Clustering",
-    "Computing parent orientations",
-    "Vote filling",
-    "Merging similar",
-    "Merging inclusions",
-    "Computing variants",
-    "Done",
-]
-
 
 class _ReconstructionWorker(QThread):
     progress = Signal(str, float)
@@ -115,6 +99,8 @@ class ReconstructionPanel(QWidget):
         self._opt_worker: _OptimizeWorker | None = None
         self._start_time = 0.0
         self._step_timings: list[tuple[str, float]] = []
+        self._step_index = 0
+        self._last_step_base: str | None = None
         self._config = ReconstructionConfig()
         self._setup_ui()
 
@@ -167,7 +153,11 @@ class ReconstructionPanel(QWidget):
 
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
-        self._log.setMaximumHeight(60)
+        # Tall enough to read a failure without scrolling — the previous 60px
+        # (~2 lines) clipped the very error text a bug report needs (#16 surface).
+        # Read-only QPlainTextEdit stays selectable/copyable.
+        self._log.setMinimumHeight(90)
+        self._log.setMaximumHeight(150)
         layout.addWidget(self._log)
 
         self._results_group = QGroupBox("Results Summary")
@@ -188,6 +178,8 @@ class ReconstructionPanel(QWidget):
         self._progress_bar.setStyleSheet("")
         self._results_group.setVisible(False)
         self._step_timings.clear()
+        self._step_index = 0
+        self._last_step_base = None
         self._config = config
         self._start_time = time.monotonic()
 
@@ -200,10 +192,19 @@ class ReconstructionPanel(QWidget):
     def _on_progress(self, step: str, pct: float):
         self._step_label.setText(step)
         self._log.appendPlainText(step)
+        # Count each genuinely NEW step. The real step count is dynamic (it
+        # depends on the algorithm and config), so the old "Step N/13" against a
+        # static union list was cosmetic int(pct*13) — colliding and skipping,
+        # and the "Step 6/13" Eloïse quoted did not track the true step (#16).
+        # Collapse the repeated "Refining OR (iter N)" sub-messages into one
+        # step and show no fabricated total; the progress bar carries "how far".
+        base = step.split(" (iter ")[0]
+        if base != self._last_step_base:
+            self._step_index += 1
+            self._last_step_base = base
+            self._step_counter.setText(f"Step {self._step_index}")
         if pct >= 0:
             self._progress_bar.setValue(int(pct * 100))
-            step_idx = max(1, int(pct * len(_STEP_NAMES)))
-            self._step_counter.setText(f"Step {step_idx}/{len(_STEP_NAMES)}")
 
     def _on_step_timed(self, step: str, elapsed: float):
         self._step_timings.append((step, elapsed))
@@ -223,7 +224,8 @@ class ReconstructionPanel(QWidget):
                 " border-radius: 6px; }"
             )
             self._step_label.setText("Done")
-            self._step_counter.setText(f"{len(_STEP_NAMES)}/{len(_STEP_NAMES)}")
+            # counter already holds the final "Step N" from the last progress
+            # message; leave it (no fabricated total to force).
             self._show_results_summary(result, total_time, self._config)
         else:
             self._progress_bar.setValue(0)
@@ -267,6 +269,8 @@ class ReconstructionPanel(QWidget):
         self._compare_btn.setEnabled(False)
         self._log.clear()
         self._log.appendPlainText("Auto-optimize: sweeping parameters…")
+        self._step_index = 0
+        self._last_step_base = None
         self._progress_bar.setStyleSheet("")
         self._results_group.setVisible(False)
         self._start_time = time.monotonic()

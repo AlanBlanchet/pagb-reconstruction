@@ -40,6 +40,57 @@ def test_auto_optimize_runs_and_adopts_a_config(qtbot, synthetic_multi_parent):
     assert best.result.parent_grain_ids.size > 0
 
 
+def test_step_counter_counts_real_steps_not_fake_total(qtbot):
+    """#16 surface: the old "Step N/13" was int(pct*13) against a 13-name union
+    list no single run traverses — it collided, skipped, and mismatched the
+    true step (the "Step 6/13" Eloïse quoted). The counter now increments once
+    per genuinely new step, collapses the repeated "Refining OR (iter N)"
+    sub-messages, and shows NO fabricated denominator."""
+    from pagb_reconstruction.ui.widgets.reconstruction_panel import ReconstructionPanel
+
+    panel = ReconstructionPanel()
+    qtbot.addWidget(panel)
+    panel._step_index = 0  # simulate a run start
+    panel._last_step_base = None
+
+    seq = [
+        ("Detecting grains", 0.0),
+        ("Setting up OR", 0.15),
+        ("Refining OR", 0.2),
+        ("Refining OR (iter 10)", 0.21),   # sub-step -> must NOT count again
+        ("Refining OR (iter 180)", 0.30),  # sub-step -> must NOT count again
+        ("Building variant graph", 0.3),
+        ("Computing variant edges (337179 pairs)", 0.35),  # a real distinct step
+        ("Clustering variants", 0.5),
+        ("Boundary-vote growth", 0.7),
+        ("Merging similar", 0.8),
+        ("Merging inclusions", 0.85),
+        ("Removing noise islands", 0.9),
+        ("Computing variants", 0.95),
+        ("Done", 1.0),
+    ]
+    nums = []
+    for msg, frac in seq:
+        panel._on_progress(msg, frac)
+        text = panel._step_counter.text()
+        assert "/" not in text, f"no fabricated denominator, got {text!r}"
+        nums.append(int(text.split()[1]))
+
+    # 3 "Refining OR" messages collapse to ONE step -> 12 distinct steps total.
+    assert nums == [1, 2, 3, 3, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], nums
+    assert panel._step_counter.text() == "Step 12"
+
+
+def test_progress_log_is_tall_enough_to_read_a_failure(qtbot):
+    """The 60px (~2 line) log clipped the error text a bug report needs (#16)."""
+    from pagb_reconstruction.ui.widgets.reconstruction_panel import ReconstructionPanel
+
+    panel = ReconstructionPanel()
+    qtbot.addWidget(panel)
+    assert panel._log.maximumHeight() > 60
+    assert panel._log.isReadOnly()  # read-only QPlainTextEdit stays copyable
+
+
 def test_success_stylesheet_is_valid_qss(qtbot):
     """Issue #13 log: 'Could not parse stylesheet of object QProgressBar'.
     The closing literal was not an f-string, so \"}}\" emitted two braces and Qt
