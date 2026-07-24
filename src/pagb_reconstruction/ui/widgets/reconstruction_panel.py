@@ -1,3 +1,4 @@
+import html
 import time
 
 import numpy as np
@@ -191,20 +192,34 @@ class ReconstructionPanel(QWidget):
 
     def _on_progress(self, step: str, pct: float):
         self._step_label.setText(step)
-        self._log.appendPlainText(step)
-        # Count each genuinely NEW step. The real step count is dynamic (it
-        # depends on the algorithm and config), so the old "Step N/13" against a
-        # static union list was cosmetic int(pct*13) — colliding and skipping,
-        # and the "Step 6/13" Eloïse quoted did not track the true step (#16).
-        # Collapse the repeated "Refining OR (iter N)" sub-messages into one
-        # step and show no fabricated total; the progress bar carries "how far".
-        base = step.split(" (iter ")[0]
-        if base != self._last_step_base:
-            self._step_index += 1
-            self._last_step_base = base
-            self._step_counter.setText(f"Step {self._step_index}")
+        if step.startswith("Error:") or step.startswith("Failed"):
+            # A failure must JUMP OUT of the log, not hide in a grey wall of
+            # similar lines — a bug report needs to see where it broke (#16
+            # bug-reporting surface). The `error` token (red) is the semantic
+            # colour for a failure and clears WCAG-AA contrast on the log's
+            # surface_dim well in every theme (light and dark).
+            self._log.appendHtml(
+                f'<span style="color: {active_theme().error};">{html.escape(step)}</span>'
+            )
+            return
         if pct >= 0:
+            # Count each genuinely NEW step. The real step count is dynamic (it
+            # depends on the algorithm and config), so the old "Step N/13" was
+            # cosmetic int(pct*13) against a static union list — colliding and
+            # skipping, and the "Step 6/13" Eloïse quoted did not track the true
+            # step (#16). Collapse "Refining OR (iter N)" sub-messages into one
+            # step; show no fabricated total (the bar carries "how far").
+            base = step.split(" (iter ")[0]
+            if base != self._last_step_base:
+                self._step_index += 1
+                self._last_step_base = base
+                self._step_counter.setText(f"Step {self._step_index}")
             self._progress_bar.setValue(int(pct * 100))
+            # Number the log line so a copied "Step 6: Clustering variants" is
+            # self-describing — the step count paired with its phase name.
+            self._log.appendPlainText(f"Step {self._step_index}: {step}")
+        else:
+            self._log.appendPlainText(step)
 
     def _on_step_timed(self, step: str, elapsed: float):
         self._step_timings.append((step, elapsed))

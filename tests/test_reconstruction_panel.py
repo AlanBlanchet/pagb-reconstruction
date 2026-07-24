@@ -81,6 +81,45 @@ def test_step_counter_counts_real_steps_not_fake_total(qtbot):
     assert panel._step_counter.text() == "Step 12"
 
 
+def test_failure_line_is_highlighted_and_not_counted(qtbot):
+    """An "Error:" line is shown in the log and must NOT bump the step counter
+    (it is not a step) — the failure has to stand out in the log a bug report
+    captures (#16 surface). The colour itself is a visual-critic check."""
+    from pagb_reconstruction.ui.widgets.reconstruction_panel import ReconstructionPanel
+
+    panel = ReconstructionPanel()
+    qtbot.addWidget(panel)
+    panel._step_index = 0
+    panel._last_step_base = None
+
+    panel._on_progress("Clustering variants", 0.5)  # a real step -> Step 1
+    assert panel._step_counter.text() == "Step 1"
+    panel._on_progress("Error: Unable to allocate 256. GiB", -1.0)
+
+    assert "Error: Unable to allocate 256. GiB" in panel._log.toPlainText()
+    assert panel._step_counter.text() == "Step 1"  # the error did not advance it
+    # the error line carries the semantic error colour (the pixels are a critic check)
+    from pagb_reconstruction.ui.theme import active_theme
+
+    assert active_theme().error.lower() in panel._log.document().toHtml().lower()
+
+
+def test_log_lines_are_numbered_with_phase_name(qtbot):
+    """A copied log line pairs the step number with its phase — a bare "Step N"
+    alone is uninformative for a bug report."""
+    from pagb_reconstruction.ui.widgets.reconstruction_panel import ReconstructionPanel
+
+    panel = ReconstructionPanel()
+    qtbot.addWidget(panel)
+    panel._step_index = 0
+    panel._last_step_base = None
+    for msg, frac in [("Detecting grains", 0.0), ("Setting up OR", 0.15), ("Clustering variants", 0.5)]:
+        panel._on_progress(msg, frac)
+    log = panel._log.toPlainText()
+    assert "Step 1: Detecting grains" in log
+    assert "Step 3: Clustering variants" in log
+
+
 def test_progress_log_is_tall_enough_to_read_a_failure(qtbot):
     """The 60px (~2 line) log clipped the error text a bug report needs (#16)."""
     from pagb_reconstruction.ui.widgets.reconstruction_panel import ReconstructionPanel
