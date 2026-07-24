@@ -252,3 +252,15 @@ def test_pixel_index_at_is_arithmetic_for_dense_maps():
     assert emap.pixel_index_at(2, 3) == 2 * cols + 3
     assert emap.pixel_index_at(-1, 0) == -1
     assert emap.pixel_index_at(0, cols) == -1
+
+
+def test_step_size_is_a_typed_stepsize(sample_ebsd):
+    # F1: step_size returns a StepSize value object, unpack/index-compatible with
+    # the old (dy, dx) tuple, carrying the named physical derivations
+    from pagb_reconstruction.core.grid import StepSize
+
+    s = sample_ebsd.step_size
+    assert isinstance(s, StepSize)
+    dy, dx = s  # still unpacks like the old tuple
+    assert (s.dy, s.dx) == (dy, dx)
+    assert s.area == dx * dy

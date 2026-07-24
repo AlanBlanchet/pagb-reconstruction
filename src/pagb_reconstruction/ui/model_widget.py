@@ -4,6 +4,7 @@ from typing import Literal, get_args, get_origin
 
 import numpy as np
 from pydantic import BaseModel
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QColorDialog,
@@ -20,6 +21,10 @@ from PySide6.QtWidgets import (
 
 
 class ModelFormWidget(QWidget):
+
+    # Emitted when any field is edited — lets a panel react (e.g. mark a shown
+    # measurement stale until re-run, Eloïse #15).
+    changed = Signal()
 
     def __init__(self, model: BaseModel, parent: QWidget | None = None):
         super().__init__(parent)
@@ -43,7 +48,21 @@ class ModelFormWidget(QWidget):
             label = field_info.title or name.replace("_", " ").title()
             form.addRow(f"{label}:", widget)
             self._field_widgets[name] = widget
+            self._connect_change(widget)
         layout.addLayout(form)
+
+    def _connect_change(self, widget: QWidget) -> None:
+        """Relay a field's native edit signal to our single ``changed``."""
+        for attr in (
+            "valueChanged",  # spin / double-spin
+            "currentIndexChanged",  # combo
+            "toggled",  # checkbox
+            "textChanged",  # line edit
+        ):
+            sig = getattr(widget, attr, None)
+            if sig is not None:
+                sig.connect(lambda *_: self.changed.emit())
+                return
 
     def _make_widget(self, name: str, annotation, info, value) -> QWidget | None:
         annotation = _unwrap_optional(annotation)
@@ -65,7 +84,9 @@ class ModelFormWidget(QWidget):
             return w
         if annotation is str:
             if "color" in name.lower():
-                return _make_color_button(str(value or "#FF0000"))
+                return _make_color_button(
+                    str(value or "#FF0000"), on_change=self.changed.emit
+                )
             return QLineEdit(str(value or ""))
         if get_origin(annotation) is Literal:
             w = QComboBox()
@@ -85,6 +106,7 @@ class ModelFormWidget(QWidget):
             if isinstance(value, BaseModel):
                 group = QGroupBox(name.replace("_", " ").title())
                 inner = ModelFormWidget(value)
+                inner.changed.connect(self.changed)  # bubble nested edits up
                 group_layout = QVBoxLayout(group)
                 group_layout.addWidget(inner)
                 return group
@@ -139,7 +161,7 @@ def _read_widget_value(widget: QWidget):
     return None
 
 
-def _make_color_button(color_str: str) -> QPushButton:
+def _make_color_button(color_str: str, on_change=None) -> QPushButton:
     btn = QPushButton()
     btn.setProperty("color_value", color_str)
     btn.setStyleSheet(
@@ -153,6 +175,8 @@ def _make_color_button(color_str: str) -> QPushButton:
             btn.setStyleSheet(
                 f"background-color: {c.name()}; min-width: 60px; min-height: 20px;"
             )
+            if on_change is not None:
+                on_change()
 
     btn.clicked.connect(pick)
     return btn

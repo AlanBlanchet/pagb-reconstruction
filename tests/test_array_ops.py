@@ -9,6 +9,7 @@ instead. These guard the segment geometry.
 import numpy as np
 
 from pagb_reconstruction.utils.array_ops import (
+    line_intercepts,
     majority_smooth,
     region_boundary_segments,
 )
@@ -106,3 +107,33 @@ def test_majority_smooth_never_erodes_into_unreconstructed():
     out = majority_smooth(a, iterations=3, ignore=-1)
     assert (out == -1).sum() == 5
     assert (out[:, 1:] == 1).all()
+
+
+# ── line-intercept grain-size measurement (ASTM E112), Eloïse issue #15 ──
+
+
+def test_line_intercepts_counts_grain_boundary_crossings():
+    # three vertical bands: cols 0-3 → 0, 4-6 → 1, 7-9 → 2
+    labels = np.zeros((10, 10), dtype=int)
+    labels[:, 4:7] = 1
+    labels[:, 7:] = 2
+    # a horizontal test line down the middle crosses two boundaries (~x=4, ~x=7)
+    ix, iy = line_intercepts(labels, (0.5, 5.0), (9.5, 5.0))
+    assert len(ix) == 2
+    assert abs(ix[0] - 4.0) < 1.0 and abs(ix[1] - 7.0) < 1.0
+    assert np.allclose(iy, 5.0)
+
+
+def test_line_intercepts_skips_unreconstructed_transitions():
+    # right half unreconstructed (-1): the 0 → -1 edge is NOT a grain boundary
+    labels = np.zeros((10, 10), dtype=int)
+    labels[:, 5:] = -1
+    assert len(line_intercepts(labels, (0.5, 5.0), (9.5, 5.0), ignore=-1)[0]) == 0
+    # without ignore, the label change IS counted
+    assert len(line_intercepts(labels, (0.5, 5.0), (9.5, 5.0))[0]) == 1
+
+
+def test_line_intercepts_degenerate_line_is_empty():
+    labels = np.zeros((5, 5), dtype=int)
+    ix, iy = line_intercepts(labels, (2.0, 2.0), (2.0, 2.0))
+    assert len(ix) == 0 and len(iy) == 0

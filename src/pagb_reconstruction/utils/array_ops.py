@@ -60,6 +60,48 @@ def region_boundary_segments(
     return xs, ys
 
 
+def line_intercepts(
+    labels: np.ndarray,
+    p0: tuple[float, float],
+    p1: tuple[float, float],
+    ignore: float | None = None,
+    step: float = 0.5,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Points where a straight test line ``p0 -> p1`` crosses a boundary between
+    two different labels — the crossings counted by the lineal-intercept
+    grain-size method (ASTM E112).
+
+    ``p0``/``p1`` are ``(x, y)`` in the pixel coordinates ``region_boundary_segments``
+    uses (x = column, y = row; pixel ``(r, c)`` spans ``x in [c, c+1]``). Returns
+    ``(xs, ys)`` — the intercept positions in the same coordinates, for drawing
+    markers where the line meets each boundary.
+
+    ``ignore`` (the unreconstructed id ``-1``) is not a grain: a transition into
+    or out of it is skipped, so a test line only counts real grain-vs-grain
+    crossings, never the ragged edge of the reconstructed region.
+    """
+    labels = np.asarray(labels)
+    rows, cols = labels.shape
+    (x0, y0), (x1, y1) = p0, p1
+    length = float(np.hypot(x1 - x0, y1 - y0))
+    if length == 0:
+        return np.empty(0), np.empty(0)
+
+    n = max(2, int(np.ceil(length / step)) + 1)
+    t = np.linspace(0.0, 1.0, n)
+    xs = x0 + t * (x1 - x0)
+    ys = y0 + t * (y1 - y0)
+    ci = np.clip(np.floor(xs).astype(int), 0, cols - 1)
+    ri = np.clip(np.floor(ys).astype(int), 0, rows - 1)
+    lab = labels[ri, ci]
+
+    change = lab[1:] != lab[:-1]
+    if ignore is not None:
+        change &= (lab[1:] != ignore) & (lab[:-1] != ignore)
+    idx = np.nonzero(change)[0]
+    return (xs[idx] + xs[idx + 1]) / 2, (ys[idx] + ys[idx + 1]) / 2
+
+
 def majority_smooth(
     labels: np.ndarray,
     iterations: int = 1,

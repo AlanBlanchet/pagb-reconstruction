@@ -190,6 +190,27 @@ class MapViewer(QWidget):
         self._plot.addItem(self._highlight_item)
         self._highlight_item.setVisible(False)
 
+        # Grain-size measurement overlay: the test lines + their boundary
+        # intercepts, drawn so the measurement is visible and checkable
+        # (Eloïse #15: "voir les lignes tracées et les intercepts pour contrôler").
+        # Session state — hidden on clean export, above the image (z >= 12).
+        _measure_pen = pg.mkPen(active_theme().accent, width=1)
+        _measure_pen.setCosmetic(True)
+        self._measure_lines_item = pg.PlotCurveItem(pen=_measure_pen)
+        self._measure_lines_item.setZValue(12)
+        self._plot.addItem(self._measure_lines_item)
+        self._measure_lines_item.setVisible(False)
+        # White fill + dark ring: luminance contrast reads on ANY IPF hue, where
+        # a warm fill vanished against orange/gold grains (visual-critic #15 D).
+        self._measure_points_item = pg.ScatterPlotItem(
+            size=8,
+            brush=pg.mkBrush(255, 255, 255),
+            pen=pg.mkPen(0, 0, 0, width=1.5),
+        )
+        self._measure_points_item.setZValue(12.5)
+        self._plot.addItem(self._measure_points_item)
+        self._measure_points_item.setVisible(False)
+
         self._crosshair_h = pg.InfiniteLine(
             angle=0, pen=pg.mkPen(active_theme().accent, width=1, style=Qt.PenStyle.DashLine)
         )
@@ -419,6 +440,10 @@ class MapViewer(QWidget):
 
     def set_ebsd_map(self, ebsd_map: EBSDMap):
         self._ebsd_map = ebsd_map
+        # Physically faithful aspect: a hex scan has dx != dy, so square pixels
+        # render the map ~15% too tall and skew every by-eye distance (Eloïse
+        # #15). StepSize.display_aspect names the dx/dy convention once.
+        self._plot.setAspectLocked(True, ratio=ebsd_map.step_size.display_aspect)
         self._placeholder.setVisible(False)
         self._graphics_view.setVisible(True)
         self._status_strip.setVisible(True)
@@ -525,6 +550,25 @@ class MapViewer(QWidget):
     def zoom_fit(self):
         self._plot.autoRange()
 
+    def show_measurement_overlay(self, lines: list, xs, ys) -> None:
+        """Draw the grain-size test lines + their boundary intercepts, so the
+        measurement is visible and checkable (Eloïse #15). ``lines`` is a list of
+        ``((x0, y0), (x1, y1))`` endpoint pairs, ``xs``/``ys`` the crossing
+        points — all in pixel coordinates, matching the parent-boundary overlay."""
+        lx: list[float] = []
+        ly: list[float] = []
+        for (x0, y0), (x1, y1) in lines:
+            lx += [x0, x1]
+            ly += [y0, y1]
+        self._measure_lines_item.setData(lx, ly, connect="pairs")
+        self._measure_lines_item.setVisible(bool(lines))
+        self._measure_points_item.setData(list(xs), list(ys))
+        self._measure_points_item.setVisible(len(xs) > 0)
+
+    def clear_measurement_overlay(self) -> None:
+        self._measure_lines_item.setVisible(False)
+        self._measure_points_item.setVisible(False)
+
     def _render_clean(self, path: str | None = None, *, to_clipboard: bool = False):
         """Export the map with neither the interactive decorations nor the dark
         plot padding — issue #13: "on ne peut pas exporter seulement l'image, on
@@ -542,6 +586,8 @@ class MapViewer(QWidget):
             self._highlight_item,
             self._roi_item,
             self._line_item,
+            self._measure_lines_item,
+            self._measure_points_item,
         ]
         shown = [d for d in decorations if d is not None and d.isVisible()]
         for d in shown:

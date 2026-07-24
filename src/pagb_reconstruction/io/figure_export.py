@@ -17,6 +17,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Patch, Rectangle
 
+from pagb_reconstruction.core.grid import StepSize
+
 _MAX_LEGEND_CATEGORIES = 24
 
 
@@ -110,7 +112,13 @@ def export_map_figure(
     """
     path = Path(path)
     data = np.asarray(image)
-    dy, dx = float(step_size[0] or 1.0), float(step_size[1] or 1.0)
+    # Coerce at the io boundary so both a StepSize and a bare (dy, dx) tuple work.
+    step = (
+        step_size
+        if isinstance(step_size, StepSize)
+        else StepSize(float(step_size[0] or 1.0), float(step_size[1] or 1.0))
+    )
+    dy, dx = step.dy, step.dx
     n_rows, n_cols = data.shape[0], data.shape[1]
 
     # Physical extent keeps a non-square step (hex scans) from distorting the map.
@@ -121,14 +129,14 @@ def export_map_figure(
     is_rgb = data.ndim == 3 and data.shape[2] in (3, 4)
     if is_rgb:
         shown = np.clip(data, 0, 1) if data.dtype.kind == "f" else data
-        ax.imshow(shown, interpolation="nearest", aspect=dy / dx)
+        ax.imshow(shown, interpolation="nearest", aspect=step.mpl_aspect)
     elif categorical:
         finite = data[np.isfinite(data)]
         cats = np.unique(finite[finite >= 0]).astype(int) if finite.size else np.array([])
         cmap = plt.get_cmap("tab20")
         ax.imshow(
             np.where(np.isfinite(data), data % 20, np.nan),
-            cmap=cmap, vmin=0, vmax=19, interpolation="nearest", aspect=dy / dx,
+            cmap=cmap, vmin=0, vmax=19, interpolation="nearest", aspect=step.mpl_aspect,
         )
         if 0 < cats.size <= _MAX_LEGEND_CATEGORIES:
             ax.legend(
@@ -143,7 +151,7 @@ def export_map_figure(
                 fontsize=8,
             )
     else:
-        im = ax.imshow(data, cmap=colormap, interpolation="nearest", aspect=dy / dx)
+        im = ax.imshow(data, cmap=colormap, interpolation="nearest", aspect=step.mpl_aspect)
         bar = fig.colorbar(im, ax=ax, fraction=0.045, pad=0.02)
         if unit:
             bar.set_label(unit)

@@ -715,3 +715,51 @@ def test_scalebar_label_carries_a_number(qtbot, sample_ebsd):
     label = w._scalebar_item.text.textItem.toPlainText()
     assert re.search(r"\d", label), f"scale-bar label has no number: {label!r}"
     assert "µm" in label
+
+
+# ── grain-size measurement overlay (Eloïse #15): visible test lines + intercepts ──
+
+
+def test_measurement_overlay_draws_lines_and_points(qtbot):
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    v = MapViewer()
+    qtbot.addWidget(v)
+    v.show_measurement_overlay([((0.0, 0.0), (10.0, 0.0))], [5.0, 8.0], [0.0, 0.0])
+    assert v._measure_lines_item.isVisible()
+    assert v._measure_points_item.isVisible()
+    v.clear_measurement_overlay()
+    assert not v._measure_lines_item.isVisible()
+    assert not v._measure_points_item.isVisible()
+
+
+def test_measurement_overlay_is_excluded_from_clean_export(qtbot, tmp_path):
+    # the test lines are session state, not part of the exported figure — they
+    # must be hidden DURING the render (like the crosshair, #13) then restored
+    from unittest.mock import patch
+
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    v = MapViewer()
+    qtbot.addWidget(v)
+    v.show_measurement_overlay([((0.0, 0.0), (10.0, 0.0))], [5.0], [0.0])
+    with patch.object(
+        v._measure_lines_item, "setVisible", wraps=v._measure_lines_item.setVisible
+    ) as spy:
+        v._render_clean(str(tmp_path / "clean.png"))
+    assert any(call.args == (False,) for call in spy.call_args_list), (
+        "measure lines must be hidden during clean export (#13/#15)"
+    )
+    assert v._measure_lines_item.isVisible(), "and restored after"
+
+
+# ── #15 finding A: hex maps rendered ~15% too tall (square-pixel aspect lock) ──
+
+
+def test_set_ebsd_map_locks_physical_aspect(qtbot, sample_ebsd):
+    from pagb_reconstruction.ui.widgets.map_viewer import MapViewer
+
+    v = MapViewer()
+    qtbot.addWidget(v)
+    v.set_ebsd_map(sample_ebsd)  # square 1.5/1.5 → ratio 1.0
+    assert abs(float(v._plot.getViewBox().state["aspectLocked"]) - 1.0) < 1e-6

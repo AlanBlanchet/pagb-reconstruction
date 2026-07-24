@@ -9,6 +9,7 @@ its own tab.
 """
 
 import numpy as np
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
@@ -28,6 +29,11 @@ from pagb_reconstruction.ui.widgets.wheel_guard import install_wheel_guard
 
 class SummaryPanel(QWidget):
     """Stat cards + the grain-size measurement tool."""
+
+    # Test-line geometry to draw on the map (lines, xs, ys), and a clear signal —
+    # so the measurement's lines + intercepts are visible + checkable (#15).
+    measurement_overlay = Signal(object, object, object)
+    measurement_cleared = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -67,10 +73,12 @@ class SummaryPanel(QWidget):
         metrics_group = QGroupBox("Grain Size Measurement")
         metrics_layout = QVBoxLayout(metrics_group)
         self._metrics_form = self._grain_metrics.to_widget()
+        self._metrics_form.changed.connect(self._on_params_changed)
         metrics_layout.addWidget(self._metrics_form)
+        self._sync_field_enablement()  # "Test lines" only applies to intercept
         btn_row = QHBoxLayout()
         self._measure_btn = QPushButton("Measure")
-        self._measure_btn.clicked.connect(self._run_measurement)
+        self._measure_btn.clicked.connect(lambda: self._run_measurement(draw=True))
         self._measure_btn.setEnabled(False)
         btn_row.addWidget(self._measure_btn)
         btn_row.addStretch()
@@ -111,9 +119,27 @@ class SummaryPanel(QWidget):
         self._card_recon.set_value(f"{pct_recon:.1f}%")
         self._card_time.set_value(f"{elapsed:.1f}s" if elapsed > 0 else "-")
 
-        self._run_measurement()
+        # A fresh reconstruction: update the number, but the previous run's test
+        # lines are stale — clear them until the user clicks Measure again.
+        self._run_measurement(draw=False)
 
-    def _run_measurement(self) -> None:
+    def _on_params_changed(self) -> None:
+        # Settings edited since the last Measure — the drawn lines + shown number
+        # are stale. Clear the overlay and say so, rather than leaving a number
+        # that no longer matches the controls (Eloïse #15 finding B).
+        self._sync_field_enablement()
+        self.measurement_cleared.emit()
+        if self._metrics_label.text():
+            self._metrics_label.setText("Settings changed — click Measure to update.")
+
+    def _sync_field_enablement(self) -> None:
+        # "Test lines" is an intercept-only control — grey it out for the area
+        # method, where it has no effect (visual-critic finding #2).
+        n_lines = self._metrics_form._field_widgets.get("n_lines")
+        if n_lines is not None:
+            n_lines.setEnabled(self._metrics_form.to_model().method == "intercept")
+
+    def _run_measurement(self, draw: bool = False) -> None:
         if self._result is None or self._ebsd_map is None:
             return
         self._grain_metrics = self._metrics_form.to_model()
@@ -121,11 +147,32 @@ class SummaryPanel(QWidget):
         # fill the grid, so reshape raises and Qt swallows it (issue #11,
         # "l'outil measure ne marche pas").
         grain_map = self._ebsd_map._to_grid(self._result.parent_grain_ids, fill=-1)
-        step = float(self._ebsd_map.step_size[0])
-        gr = self._grain_metrics.measure(grain_map, step_size=step)
-        self._metrics_label.setText(
-            f"Mean intercept: {gr.mean_intercept_um:.2f} µm\n"
-            f"ASTM grain size #: {gr.astm_grain_size_number:.1f}\n"
-            f"Grain count: {gr.grain_count}\n"
-            f"Method: {gr.method}"
-        )
+        # (dy, dx) — the map's anisotropic pixel pitch. A hex scan has dx != dy,
+        # so a single step scaled every distance wrong (Eloïse #15).
+        step_size = self._ebsd_map.step_size
+
+        if self._grain_metrics.method == "intercept":
+            gr, lines, xs, ys = self._grain_metrics.measure_intercept(grain_map, step_size)
+            if draw:
+                self.measurement_overlay.emit(lines, xs, ys)
+            else:
+                self.measurement_cleared.emit()
+        else:
+            gr = self._grain_metrics.measure(grain_map, step_size)
+            self.measurement_cleared.emit()
+
+        # Compact 3 lines (5 clipped off-screen), worded PER METHOD — the area
+        # method has no intercept crossings, so the old shared template showed an
+        # alarming "0 crossings over 0.0 µm" (visual-critic finding #1).
+        if gr.method == "area":
+            self._metrics_label.setText(
+                f"Mean grain size: {gr.equivalent_diameter_um:.2f} µm   (ASTM #{gr.astm_grain_size_number:.1f})\n"
+                f"equivalent-circle diameter\n"
+                f"{gr.grain_count} grains · area"
+            )
+        else:
+            self._metrics_label.setText(
+                f"Mean intercept: {gr.mean_intercept_um:.2f} µm   (ASTM #{gr.astm_grain_size_number:.1f})\n"
+                f"{gr.total_crossings} crossings over {gr.total_line_length_um:.1f} µm\n"
+                f"{gr.grain_count} grains · intercept"
+            )

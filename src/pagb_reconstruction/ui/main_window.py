@@ -110,6 +110,14 @@ class MainWindow(QMainWindow):
         # docks; they are now plots inside the Statistics browser.
         self._stats_dashboard = StatsDashboard()
         self._summary_panel = SummaryPanel()
+        # Draw the grain-size test lines + intercepts on the map so the
+        # measurement is visible and checkable (Eloïse #15).
+        self._summary_panel.measurement_overlay.connect(
+            self._map_viewer.show_measurement_overlay
+        )
+        self._summary_panel.measurement_cleared.connect(
+            self._map_viewer.clear_measurement_overlay
+        )
         self._parent_review = ParentReviewPanel()
 
         self._grain_info = QWidget()

@@ -18,7 +18,7 @@ from pagb_reconstruction.core.constants import (
 )
 from pagb_reconstruction.core.grain import Grain, detect_grains
 from pagb_reconstruction.core.phase import PhaseConfig
-from pagb_reconstruction.core.grid import GridInfo
+from pagb_reconstruction.core.grid import GridInfo, StepSize
 from pagb_reconstruction.utils.array_ops import (
     boundaries_from_2d,
     region_boundary_segments,
@@ -141,12 +141,12 @@ class EBSDMap(SpatialMap):
         )
 
     @property
-    def step_size(self) -> tuple[float, float]:
+    def step_size(self) -> StepSize:
         if self.grid is not None:
-            return (self.grid.dy, self.grid.dx)
+            return StepSize(self.grid.dy, self.grid.dx)
         dx = self.crystal_map.dx
         dy = self.crystal_map.dy
-        return (float(dy) if dy else 1.0, float(dx) if dx else 1.0)
+        return StepSize(float(dy) if dy else 1.0, float(dx) if dx else 1.0)
 
     @property
     def phase_ids(self) -> np.ndarray:
