@@ -9,13 +9,50 @@ instead. These guard the segment geometry.
 import numpy as np
 import pytest
 
+from scipy import sparse
+
 from pagb_reconstruction.utils.array_ops import (
+    col_normalize,
     line_intercepts,
     majority_smooth,
     region_boundary_segments,
     remap_labels,
     segment_argmax,
+    strongest_attractor,
 )
+
+
+def test_col_normalize_columns_sum_to_one():
+    M = sparse.csc_matrix(np.array([[1.0, 0.0, 2.0], [3.0, 0.0, 2.0], [0.0, 0.0, 0.0]]))
+    N = col_normalize(M)
+    sums = np.asarray(N.sum(axis=0)).ravel()
+    # col0: 1+3=4 -> sums to 1; col1: all-zero -> stays 0 (no div-by-zero); col2: 2+2 -> 1
+    np.testing.assert_allclose(sums, [1.0, 0.0, 1.0])
+    assert N[0, 0] == 0.25 and N[1, 0] == 0.75
+
+
+def test_strongest_attractor_matches_python_loop():
+    """The vectorised (best, weight) must match the old per-column getcol loop
+    that markov_cluster used, including an all-zero attractor slice (a node
+    connected to no attractor -> argmax 0)."""
+    rng = np.random.default_rng(1)
+    n = 40
+    dense = rng.random((n, n))
+    dense[dense < 0.7] = 0.0  # sparsify
+    dense[:, 0] = 0.0  # column 0: no weight anywhere -> all-zero attractor slice
+    M = sparse.csc_matrix(dense)
+    attractors = np.array([2, 5, 9, 17, 31])
+
+    ref_best = np.zeros(n, dtype=int)
+    ref_w = np.zeros(n)
+    for i in range(n):
+        vals = np.asarray(M.getcol(i)[attractors].todense()).ravel()
+        ref_best[i] = int(np.argmax(vals))
+        ref_w[i] = vals.max()
+
+    best, weight = strongest_attractor(M, attractors)
+    np.testing.assert_array_equal(best, ref_best)
+    np.testing.assert_allclose(weight, ref_w)
 
 
 def _dense_segment_argmax(row, col, w, n_rows, n_cols):

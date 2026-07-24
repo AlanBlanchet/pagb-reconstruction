@@ -6,9 +6,11 @@ from pagb_reconstruction.core.constants import ClusteringDefaults
 from pagb_reconstruction.core.grain import Grain
 from pagb_reconstruction.core.orientation_relationship import OrientationRelationship
 from pagb_reconstruction.utils.array_ops import (
+    col_normalize,
     grain_index_map,
     remap_labels,
     segment_argmax,
+    strongest_attractor,
 )
 from pagb_reconstruction.utils.compute import Quaternions
 from pagb_reconstruction.utils.math_ops import MathOps, MisorientationOps
@@ -63,6 +65,46 @@ def _compute_edge_weight(
     return float(MathOps.cumulative_gaussian(min_dev, threshold_deg, tolerance_deg))
 
 
+def _mcl_iterate(
+    adjacency: sparse.csr_matrix,
+    *,
+    inflation: float,
+    expansion: int,
+    max_iter: int,
+    convergence_threshold: float = _CLUSTERING.convergence_threshold,
+) -> sparse.csc_matrix:
+    """Run Markov clustering to convergence and return the stochastic matrix M.
+
+    The shared MCL body of both clusterers: add self-loops, column-normalize,
+    then repeatedly expand (``expansion`` powers), inflate, prune and
+    renormalize until the matrix stops moving. The grain and variant clusterers
+    differ only in the expansion power (variant fixes it at 2) and their tunings.
+    """
+    n = adjacency.shape[0]
+    M = adjacency.astype(np.float64).tocsc()
+    M = M + sparse.eye(n, format="csc")
+    M = col_normalize(M)
+
+    for _ in range(max_iter):
+        M_old = M.copy()
+
+        M_exp = M
+        for _p in range(expansion - 1):
+            M_exp = M_exp @ M
+        M = M_exp
+
+        M.data **= inflation
+        M.data[M.data < _CLUSTERING.prune_threshold] = 0.0
+        M.eliminate_zeros()
+        M = col_normalize(M)
+
+        diff = M - M_old
+        if diff.nnz == 0 or np.abs(diff.data).max() < convergence_threshold:
+            break
+
+    return M
+
+
 def markov_cluster(
     adjacency: sparse.csr_matrix,
     inflation_power: float = _CLUSTERING.inflation_power,
@@ -74,47 +116,22 @@ def markov_cluster(
     if n == 0:
         return np.array([], dtype=np.int32)
 
-    M = adjacency.astype(np.float64).tocsc()
-    M = M + sparse.eye(n, format="csc")
-
-    col_sums = np.array(M.sum(axis=0)).flatten()
-    col_sums[col_sums == 0] = 1.0
-    M = M.multiply(1.0 / col_sums).tocsc()
-
-    for _ in range(max_iterations):
-        M_old = M.copy()
-
-        M_exp = M
-        for _p in range(expansion_power - 1):
-            M_exp = M_exp @ M
-        M = M_exp
-
-        M.data **= inflation_power
-        M.data[M.data < _CLUSTERING.prune_threshold] = 0.0
-        M.eliminate_zeros()
-
-        col_sums = np.array(M.sum(axis=0)).flatten()
-        col_sums[col_sums == 0] = 1.0
-        M = M.multiply(1.0 / col_sums).tocsc()
-
-        diff_data = M - M_old
-        if diff_data.nnz == 0 or np.abs(diff_data.data).max() < convergence_threshold:
-            break
-
-    labels = np.zeros(n, dtype=np.int32)
+    M = _mcl_iterate(
+        adjacency,
+        inflation=inflation_power,
+        expansion=expansion_power,
+        max_iter=max_iterations,
+        convergence_threshold=convergence_threshold,
+    )
     diag = np.array(M.diagonal()).flatten()
     attractors = np.where(diag > _CLUSTERING.attractor_threshold)[0]
 
     if len(attractors) == 0:
         return np.arange(n, dtype=np.int32)
 
-    M_csc = M.tocsc()
-    for i in range(n):
-        col = M_csc.getcol(i)
-        vals = np.array(col[attractors].todense()).flatten()
-        labels[i] = attractors[np.argmax(vals)]
-
-    return remap_labels(labels)
+    # Each node joins its strongest attractor (vectorised over all columns).
+    best, _ = strongest_attractor(M.tocsc(), attractors)
+    return remap_labels(attractors[best])
 
 
 def vote_fill(
@@ -302,25 +319,8 @@ def variant_graph_cluster(
     max_iter: int = _CLUSTERING.variant_max_iter,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     dim = adj.shape[0]
-    M = adj.astype(np.float64).tocsc()
-    M = M + sparse.eye(dim, format="csc")
-
-    col_sums = np.array(M.sum(axis=0)).flatten()
-    col_sums[col_sums == 0] = 1.0
-    M = M.multiply(1.0 / col_sums).tocsc()
-
-    for _ in range(max_iter):
-        M_old = M.copy()
-        M = M @ M
-        M.data **= inflation
-        M.data[M.data < _CLUSTERING.prune_threshold] = 0.0
-        M.eliminate_zeros()
-        col_sums = np.array(M.sum(axis=0)).flatten()
-        col_sums[col_sums == 0] = 1.0
-        M = M.multiply(1.0 / col_sums).tocsc()
-        diff = M - M_old
-        if diff.nnz == 0 or np.abs(diff.data).max() < _CLUSTERING.convergence_threshold:
-            break
+    # Variant-graph MCL fixes the expansion power at 2 (M @ M per iteration).
+    M = _mcl_iterate(adj, inflation=inflation, expansion=2, max_iter=max_iter)
 
     # Best variant per grain = the variant node with the highest row mass.
     # Vectorised (row sum → per-grain argmax); a Python double loop over
@@ -336,13 +336,7 @@ def variant_graph_cluster(
     if len(attractors) > 0:
         # Each node votes for its strongest attractor's cluster; a grain takes
         # the cluster with the most total vote weight across its variant nodes.
-        # Vectorised via sparse argmax/max over the attractor rows — the prior
-        # per-column Python loop (dim iterations × dense attractor slice) was
-        # the O(dim²) step that hung reconstruction on full-resolution maps.
-        M_csc = M.tocsc()
-        sub = M_csc[attractors, :]
-        best_att = np.asarray(sub.argmax(axis=0)).flatten()
-        best_w = np.asarray(sub.max(axis=0).todense()).flatten()
+        best_att, best_w = strongest_attractor(M.tocsc(), attractors)
         node_cluster = attractors[best_att] // n_variants
         node_grain = np.arange(dim) // n_variants
         uniq_clusters, cluster_compact = np.unique(node_cluster, return_inverse=True)

@@ -42,6 +42,32 @@ def segment_argmax(
     return np.asarray(vote.argmax(axis=1)).ravel()
 
 
+def col_normalize(matrix):
+    """Scale every column of a sparse matrix to sum to 1 (column-stochastic).
+
+    A zero column is left as zeros (its ``1/sum`` guard avoids division by
+    zero). Returns CSC. This column-stochastic step is the shared idiom of the
+    Markov-cluster loop, applied once per iteration in both clusterers.
+    """
+    col_sums = np.array(matrix.sum(axis=0)).flatten()
+    col_sums[col_sums == 0] = 1.0
+    return matrix.multiply(1.0 / col_sums).tocsc()
+
+
+def strongest_attractor(matrix_csc, attractors: np.ndarray):
+    """For each column, the attractor row holding its largest weight.
+
+    Returns ``(best, weight)``: ``best[j]`` indexes into ``attractors`` (the
+    strongest attractor for node ``j``), ``weight[j]`` is that weight. A
+    vectorised per-column argmax/max over the attractor rows — the grain-graph
+    clusterer previously did this with an O(n) Python ``getcol`` loop.
+    """
+    sub = matrix_csc[attractors, :]
+    best = np.asarray(sub.argmax(axis=0)).ravel()
+    weight = np.asarray(sub.max(axis=0).todense()).ravel()
+    return best, weight
+
+
 def boundaries_from_2d(arr: np.ndarray) -> np.ndarray:
     rows, cols = arr.shape
     boundary = np.zeros((rows, cols), dtype=bool)
