@@ -1,5 +1,22 @@
 # visual-critic memory — pagb-reconstruction
 
+## 2026-07-24 — #16 clustering OOM fix (dense→sparse vote matrix): 3/3 PASS
+
+- Cold launch `uv run pagb` (no file arg) + File>Open native GTK dialog: select
+  folder + click Open navigates IN (no desktop double_click action exists);
+  select file + Open loads. martensite_roomtemp.ctf (501x667) reconstructs
+  ~17s, 978 parents, 93.4% recon, mean fit 5.79° — unchanged from pre-fix
+  baseline, confirming the sparse segment_argmax refactor is bit-faithful.
+- No Failed/allocation-error text anywhere (panel log, bottom Log tab, status bar).
+- NEW ergonomic defect: reconstruction_panel._STEP_NAMES (13 hardcoded labels)
+  does not match the variant_graph algorithm's real emitted step names
+  ("Boundary-vote growth", "Removing noise islands" absent from the list) —
+  the "Step N/13" counter is cosmetic int(pct*13), not a true list index.
+  Live-caught: "Step 2/13" simultaneous with label "Refining OR" (true
+  position 3/13). Same surface Eloïse quoted verbatim in her bug report.
+- Fix (graph.py:variant_graph_cluster, array_ops.py:segment_argmax) was
+  UNCOMMITTED in working tree at verification time.
+
 ## 2026-06-18
 
 ### Launch / capture

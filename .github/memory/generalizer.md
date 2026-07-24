@@ -1,5 +1,15 @@
 # Generalizer Memory
 
+## 2026-07-24: Issue #16 clustering-OOM fix — audit (no in-fix change owed)
+
+- The #16 fix (`segment_argmax` + vectorized `remap_labels` in `utils/array_ops.py`) is clean and maximally general for its scope. `segment_argmax` = grouped argmax WITH duplicate-weight summation; verified bit-equivalent to the old dense `np.argmax(axis=1)`. Correct home, right name. No generalization change owed inside the fix.
+- **Standing unification candidate (PRE-EXISTING dup, deferred out of the surgical #16 commit):** `core/graph.py` holds TWO near-identical MCL loops — `markov_cluster` (grain path) + `variant_graph_cluster` (variant path) — differing only in a hardcoded `expansion=2` and a `variant_*` config mirror (`variant_inflation`/`variant_max_iter` vs `inflation_power`/`max_iterations`, sharing `prune`/`convergence`/`attractor` thresholds). Three extractions, each with a parity test:
+  1. `col_normalize(M)` — the column-stochastic idiom appears **4×** (graph.py ~80-82, ~96-98, ~308-310, ~318-320): a clean max-3 violation.
+  2. `strongest_attractor(M_csc, attractors) -> (node_ids, weights)` — per-column argmax over attractor rows; **2× dup**, and the grain path STILL has an O(n) Python `getcol` loop (markov_cluster ~111-115) the variant path already vectorized. Distinct from `segment_argmax` (no summation) — do NOT merge the two.
+  3. `_mcl_iterate(M, inflation, expansion, max_iter)` — the whole ~25-line MCL body, duplicated 2×.
+  Rule: `strongest_attractor` is justified ONLY if BOTH paths adopt it (else a 1-caller premature helper). Do BOTH or NEITHER.
+- Aside: `rust/target/**` build artifacts (+ `.rustc_info.json`) are git-tracked and churn in every diff — `.gitignore` hygiene, not generalization.
+
 ## 2026-04-24: Fifth pass — _pair_angles helper extraction
 
 ### Changes made
