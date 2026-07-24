@@ -227,3 +227,11 @@ Re-verified after `main_window.py` was rebuilt from HEAD (a bad scripted slice h
 - Method: switch to Band Contrast (greyscale, INSTANT, no reconstruction needed) via the display dropdown before zooming — avoids the reconstruction wait for a pixel-crispness check.
 
 - **P3 duplicate hover readout (recurring since 2026-06-18) — RESOLVED 91fecd6**: the `(x,y)|Phase|phi|IQ` string rendered twice (`MapViewer._status_strip` + `MainWindow` QStatusBar). Fixed by removing the WINDOW-bar hover readout (disconnected `pixel_hovered` → `_on_pixel_hover`, deleted the handler) and keeping the viewer strip (sits under the map, already handles not-indexed + mouse-left). Note: diverged from the earlier "keep the QStatusBar" suggestion — kept the strip because it's the more functional one and it was the minimal change. Window QStatusBar now free for ROI/save/error messages.
+
+## 2026-07-24 — #15 grain-size measurement on hex data: 5/5 PASS
+
+- Verified on `Area6-cleaned.ang` (hex, 636×702, dx=0.1/dy=0.0866µm). **Map aspect now locks to `dx/dy`=1.275** (was the distorted 1.104 square-pixel bug) — measured stable across launch size, PNG export, and post-resize to 900px height. Use a **median-edge pixel scan** for the map bbox: the `(63,64,66)` splitter-handle colour false-triggers a loose background threshold on a first pass.
+- Test-line grid + intercept dots stay aligned on boundaries after the aspect change and at every zoom. Dots are white + dark-ring (read on any IPF hue). 3-line readout fits at 1300 and 900px heights. Stale-cue on settings-change works and generalises to the Method dropdown.
+- Launch recipe current: `env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb GDK_BACKEND=x11 uv run pagb <abs.ang>`, cwd repo root, `size=1400x1300`, `wait=90`, `target=nested:PAGB Reconstruction`. Reconstruction ~15s on this 446k-pt hex map.
+- Export path: **Tools > "Export Image (PNG/SVG)..."** → native GTK save dialog; type the ABSOLUTE path into the Name field, click Save via a FRESH element ref (a coordinate-click can only-focus).
+- Fresh finding this pass — area-method readout showed intercept wording ("0 crossings") — was **FIXED same turn** (method-aware readout + Test-lines disabled for area).
