@@ -7,12 +7,95 @@ instead. These guard the segment geometry.
 """
 
 import numpy as np
+import pytest
 
 from pagb_reconstruction.utils.array_ops import (
     line_intercepts,
     majority_smooth,
     region_boundary_segments,
+    remap_labels,
+    segment_argmax,
 )
+
+
+def _dense_segment_argmax(row, col, w, n_rows, n_cols):
+    """The pre-issue-#16 dense reference: accumulate then argmax per row."""
+    dense = np.zeros((n_rows, n_cols))
+    np.add.at(dense, (np.asarray(row), np.asarray(col)), np.asarray(w, dtype=float))
+    return np.argmax(dense, axis=1)
+
+
+@pytest.mark.parametrize(
+    "row, col, w, n_rows, n_cols",
+    [
+        # distinct entries, one per row
+        ([0, 1, 2], [2, 0, 1], [1.0, 1.0, 1.0], 3, 3),
+        # DUPLICATE (row, col) pairs must SUM (col 0 of row 0 wins: 0.6 > 0.5)
+        ([0, 0, 0], [0, 0, 1], [0.3, 0.3, 0.5], 1, 2),
+        # a TIE inside a row resolves to the smallest column index
+        ([0, 0], [2, 0], [1.0, 1.0], 1, 3),
+        # an ALL-ZERO row (no positive weight) resolves to column 0
+        ([0, 1], [1, 2], [0.0, 0.9], 2, 3),
+        # more rows than entries: untouched rows argmax to 0
+        ([1], [3], [0.7], 4, 4),
+        # MIXED SIGN: not a real regime here, but the primitive must stay
+        # equivalent to dense for any sign (scipy treats unstored cells as 0).
+        ([0, 0, 1, 1], [0, 2, 1, 2], [-0.5, -0.1, -0.9, -0.2], 2, 3),
+    ],
+)
+def test_segment_argmax_matches_dense(row, col, w, n_rows, n_cols):
+    got = segment_argmax(np.array(row), np.array(col), np.array(w), n_rows, n_cols)
+    want = _dense_segment_argmax(row, col, w, n_rows, n_cols)
+    assert got.shape == (n_rows,)
+    np.testing.assert_array_equal(got, want)
+
+
+def test_segment_argmax_random_parity():
+    rng = np.random.default_rng(0)
+    n_rows, n_cols = 200, 60
+    k = 2000  # many duplicate (row, col) pairs -> exercises summation
+    row = rng.integers(0, n_rows, k)
+    col = rng.integers(0, n_cols, k)
+    w = rng.random(k)
+    got = segment_argmax(row, col, w, n_rows, n_cols)
+    want = _dense_segment_argmax(row, col, w, n_rows, n_cols)
+    np.testing.assert_array_equal(got, want)
+
+
+def test_segment_argmax_scales_without_dense():
+    """The issue-#16 regime: ~200k rows/cols. A dense grid would be 320 GiB;
+    the sparse grouped argmax must run in a blink."""
+    n = 200_000
+    rows = np.repeat(np.arange(n), 2)     # [0,0,1,1,2,2,...]
+    cols = np.empty(2 * n, dtype=np.int64)
+    cols[0::2] = np.arange(n)             # each row's diagonal
+    cols[1::2] = (np.arange(n) + 1) % n   # and a weaker off-diagonal
+    w = np.empty(2 * n)
+    w[0::2] = 1.0
+    w[1::2] = 0.5
+    got = segment_argmax(rows, cols, w, n, n)
+    assert got.shape == (n,)
+    # the diagonal entry (weight 1.0) beats the off-diagonal (0.5) in every row
+    np.testing.assert_array_equal(got, np.arange(n))
+
+
+@pytest.mark.parametrize(
+    "labels",
+    [
+        [5, 5, 2, 9, 2],       # unsorted, gapped
+        [-1, 0, 3, -1, 3],     # negatives (the unreconstructed sentinel)
+        [7],                   # single
+        [],                    # empty
+        [0, 1, 2, 3],          # already compact
+    ],
+)
+def test_remap_labels_matches_dict(labels):
+    labels = np.array(labels, dtype=np.int64)
+    unique = np.unique(labels)
+    old = np.array([{o: n for n, o in enumerate(unique)}[l] for l in labels], dtype=np.int32)
+    got = remap_labels(labels)
+    assert got.dtype == np.int32
+    np.testing.assert_array_equal(got, old)
 
 
 def _segset(xs, ys):

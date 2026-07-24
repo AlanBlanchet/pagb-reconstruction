@@ -1,10 +1,45 @@
 import numpy as np
+from scipy import sparse
 
 
 def remap_labels(labels: np.ndarray) -> np.ndarray:
-    unique = np.unique(labels)
-    remap = {old: new for new, old in enumerate(unique)}
-    return np.array([remap[l] for l in labels], dtype=np.int32)
+    """Compact arbitrary labels to a dense ``0..k-1`` range, preserving groups.
+
+    ``np.unique(return_inverse=True)`` already yields each label's rank in
+    sorted-unique order — the exact mapping the old dict built, without a Python
+    loop over every grain (O(n_grains) on the full-map hot path, issue #16).
+    """
+    return np.unique(labels, return_inverse=True)[1].ravel().astype(np.int32)
+
+
+def segment_argmax(
+    row_idx: np.ndarray,
+    col_idx: np.ndarray,
+    weight: np.ndarray,
+    n_rows: int,
+    n_cols: int,
+) -> np.ndarray:
+    """For each row, the column with the largest SUMMED weight (grouped argmax).
+
+    Identical to ``np.argmax(dense, axis=1)`` where ``dense`` accumulates
+    ``weight`` at each ``(row, col)`` — but never materialises the
+    ``n_rows x n_cols`` grid. That dense grid is O(n_rows x n_cols) float64 and
+    reached 256 GiB on a full-resolution map (issue #16), even though each row
+    carries only a handful of non-zero columns.
+
+    Callers here pass non-negative MCL vote weights, but the equivalence to
+    ``np.argmax`` holds for ANY sign: scipy treats unstored entries as 0 and
+    breaks ties toward the smallest column index, exactly as ``np.argmax`` does,
+    so this is safe as a general primitive. A row with no positive weight
+    resolves to column 0, like ``np.argmax`` on an all-zero row.
+    """
+    vote = sparse.coo_matrix(
+        (weight, (row_idx, col_idx)), shape=(n_rows, n_cols)
+    ).tocsr()
+    # Drop stored exact-zeros so an all-zero row becomes empty; scipy resolves an
+    # empty row's argmax to column 0 stably across versions, matching the dense path.
+    vote.eliminate_zeros()
+    return np.asarray(vote.argmax(axis=1)).ravel()
 
 
 def boundaries_from_2d(arr: np.ndarray) -> np.ndarray:

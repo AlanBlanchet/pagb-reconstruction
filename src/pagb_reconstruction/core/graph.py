@@ -5,7 +5,11 @@ from scipy.sparse.csgraph import connected_components
 from pagb_reconstruction.core.constants import ClusteringDefaults
 from pagb_reconstruction.core.grain import Grain
 from pagb_reconstruction.core.orientation_relationship import OrientationRelationship
-from pagb_reconstruction.utils.array_ops import grain_index_map, remap_labels
+from pagb_reconstruction.utils.array_ops import (
+    grain_index_map,
+    remap_labels,
+    segment_argmax,
+)
 from pagb_reconstruction.utils.compute import Quaternions
 from pagb_reconstruction.utils.math_ops import MathOps, MisorientationOps
 
@@ -342,9 +346,14 @@ def variant_graph_cluster(
         node_cluster = attractors[best_att] // n_variants
         node_grain = np.arange(dim) // n_variants
         uniq_clusters, cluster_compact = np.unique(node_cluster, return_inverse=True)
-        vote = np.zeros((n_grains, uniq_clusters.size))
-        np.add.at(vote, (node_grain, cluster_compact), best_w)
-        cluster_labels = uniq_clusters[np.argmax(vote, axis=1)].astype(np.int32)
+        # Grouped argmax over a SPARSE vote matrix: each grain takes the cluster
+        # with the most total vote weight. The dense (n_grains, n_clusters)
+        # float64 grid this replaces reached 256 GiB on a full-resolution map
+        # (issue #16), though each grain votes for only <= n_variants clusters.
+        best_cluster = segment_argmax(
+            node_grain, cluster_compact, best_w, n_grains, uniq_clusters.size
+        )
+        cluster_labels = uniq_clusters[best_cluster].astype(np.int32)
     else:
         # MCL found no attractors (too sparse a graph). Falling back to one
         # cluster per grain (np.arange) renders as dust; instead keep the real

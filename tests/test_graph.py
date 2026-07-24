@@ -11,7 +11,53 @@ survives. This is the mechanism behind the "only dust appears" bug report.
 import numpy as np
 from scipy import sparse
 
-from pagb_reconstruction.core.graph import _grain_connected_components
+from pagb_reconstruction.core.graph import _grain_connected_components, variant_graph_cluster
+
+
+def test_variant_cluster_never_densifies(monkeypatch):
+    """The attractor branch must not build a grains x clusters DENSE matrix.
+
+    Regression for issue #16 ("problème taille"): on a full-resolution map MCL
+    formed ~182681 clusters over ~188445 grains, and the vote step allocated a
+    (188445, 182681) float64 array = 256 GiB -> MemoryError, so reconstruction
+    FAILED at "Clustering variants". Grain->cluster assignment is a grouped
+    argmax and needs no dense grid.
+
+    Machine-independent: rather than rely on RAM, forbid ANY 2-D dense
+    ``np.zeros`` inside the clustering step. The legit call there is 1-D
+    (``cluster_labels``); only the dense vote matrix is 2-D.
+    """
+    from pagb_reconstruction.core import graph
+
+    n_grains, n_variants = 120, 2
+    dim = n_grains * n_variants
+    # Block-diagonal: each grain's variant nodes interlink, grains disjoint. MCL
+    # then yields ~one attractor per grain -> n_clusters == n_grains, the exact
+    # near-square regime that produced the 256 GiB matrix.
+    rows, cols = [], []
+    for g in range(n_grains):
+        a, b = g * n_variants, g * n_variants + 1
+        rows += [a, b]
+        cols += [b, a]
+    adj = sparse.csr_matrix((np.ones(len(rows)), (rows, cols)), shape=(dim, dim))
+    all_candidates = np.zeros((n_grains, n_variants, 4))
+    all_candidates[..., 0] = 1.0  # unit quats; the value is irrelevant here
+
+    real_zeros = np.zeros
+
+    def guarded_zeros(shape, *a, **k):
+        if isinstance(shape, tuple) and len(shape) >= 2 and all(s > 1 for s in shape[:2]):
+            raise MemoryError(f"issue #16: refused dense 2-D allocation {shape}")
+        return real_zeros(shape, *a, **k)
+
+    monkeypatch.setattr(graph.np, "zeros", guarded_zeros)
+
+    _, _, cluster_labels = variant_graph_cluster(
+        adj, all_candidates, n_grains, n_variants, inflation=1.1
+    )
+    assert cluster_labels.shape == (n_grains,)
+    # Disconnected grains -> each is its own parent; done without a dense grid.
+    assert len(np.unique(cluster_labels)) == n_grains
 
 
 def test_connected_components_group_linked_grains():
